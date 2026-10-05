@@ -79,6 +79,11 @@ async def get_user_by_email(db: AsyncSession, email: str) -> Optional[User]:
 
 
 async def get_user_by_id(db: AsyncSession, user_id) -> Optional[User]:
+    if isinstance(user_id, str):
+        try:
+            user_id = uuid.UUID(user_id)
+        except ValueError:
+            return None
     return await db.get(User, user_id)
 
 

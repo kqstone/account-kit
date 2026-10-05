@@ -149,6 +149,10 @@ async def patch_me(
 def mount_account(app, get_db, config) -> None:
     from account_kit.config import set_config
 
+    from account_kit.admin_router import admin_router, public_extra
+
     set_config(config)
     app.state.account_get_db = get_db
     app.include_router(router, prefix=config.api_prefix)
+    app.include_router(public_extra, prefix=config.api_prefix)
+    app.include_router(admin_router, prefix=config.admin_prefix)
