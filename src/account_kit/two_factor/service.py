@@ -391,7 +391,8 @@ async def revoke_trusted(db: AsyncSession, user_id) -> None:
 def mfa_required(user: User, device_name: str = "", config: Optional[AccountKitConfig] = None) -> HTTPException:
     """401 (non-200 on purpose: old clients show ``message`` instead of treating
     the response as a successful login)."""
-    token = challenge_store.create(user.id, user.hashed_password, device_name=device_name)
+    ttl = config.challenge_ttl() if config is not None else TTL_SECONDS
+    token = challenge_store.create(user.id, user.hashed_password, device_name=device_name, ttl_seconds=ttl)
     email_ok = bool(config is not None and email_factor_available(config, user))
     detail = {
         "code": "MFA_REQUIRED",
@@ -399,7 +400,7 @@ def mfa_required(user: User, device_name: str = "", config: Optional[AccountKitC
         "challenge_token": token,
         "methods": ["totp", "recovery"] + (["email"] if email_ok else []),
         "email_available": email_ok,
-        "expires_in": TTL_SECONDS,
+        "expires_in": ttl,
     }
     if config is not None:
         detail["trusted_device_days"] = int(config.trusted_device_days)

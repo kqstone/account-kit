@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_db, require_admin
 from account_kit.service import complete_login, get_user_by_id
-from account_kit.two_factor.challenges import MAX_ATTEMPTS, Challenge, challenge_store, password_fingerprint
+from account_kit.two_factor.challenges import Challenge, challenge_store, password_fingerprint
 from account_kit.two_factor.service import (
     admin_reset,
     device_public,
@@ -208,7 +208,7 @@ async def login_second_factor(
             if detail.get("code") == "EMAIL_UNAVAILABLE":
                 raise
             item.attempts += 1
-            left = MAX_ATTEMPTS - item.attempts
+            left = config.challenge_max_attempts() - item.attempts
             if left <= 0:
                 challenge_store.discard(challenge_token)
                 raise HTTPException(

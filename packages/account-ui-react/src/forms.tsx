@@ -22,26 +22,68 @@ export function LoginForm({
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const [force, setForce] = useState(false)
+  // Image captcha (428 CAPTCHA_REQUIRED after repeated failures, when the host enables it)
+  const [captchaNeeded, setCaptchaNeeded] = useState(false)
+  const [captchaId, setCaptchaId] = useState("")
+  const [captchaImage, setCaptchaImage] = useState("")
+  const [captchaCode, setCaptchaCode] = useState("")
+
+  async function loadCaptcha() {
+    setCaptchaId("")
+    setCaptchaImage("")
+    setCaptchaCode("")
+    if (typeof client.captcha !== "function") return
+    try {
+      const data = await client.captcha()
+      setCaptchaId(data.captcha_id || "")
+      setCaptchaImage(data.image_base64 ? `data:image/png;base64,${data.image_base64}` : "")
+    } catch {
+      setError("验证码加载失败，请点击换一张")
+    }
+  }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
     setError("")
+    if (captchaNeeded && (!captchaId || !captchaCode.trim())) {
+      setError("请输入图形验证码")
+      return
+    }
     setBusy(true)
+    const usedCaptcha = captchaNeeded
     try {
       const token = await client.login(username.trim(), password, {
         force,
         deviceName: deviceName || undefined,
+        captchaId: usedCaptcha ? captchaId : undefined,
+        captchaCode: usedCaptcha ? captchaCode.trim() : undefined,
       })
+      setCaptchaNeeded(false)
       onSuccess(token.access_token)
     } catch (err) {
       const body = err instanceof AccountApiError ? err.body : null
       const detail =
         body && typeof body === "object" && "detail" in body
-          ? (body as { detail?: { code?: string; device_name?: string } }).detail
+          ? (body as { detail?: { code?: string; device_name?: string; captcha_required?: boolean } | string }).detail
           : null
-      if (err instanceof AccountApiError && err.status === 409 && detail?.code === "ALREADY_LOGGED_IN") {
+      const info = detail && typeof detail === "object" ? detail : null
+      const status = err instanceof AccountApiError ? err.status : 0
+      const code = info?.code
+      // A captcha is single-use: any reply after sending one needs a fresh image.
+      if (usedCaptcha) setCaptchaNeeded(false)
+      if (status === 428 || code === "CAPTCHA_REQUIRED" || code === "CAPTCHA_INVALID" || info?.captcha_required) {
+        setCaptchaNeeded(true)
+        await loadCaptcha()
+        setError(
+          code === "CAPTCHA_INVALID"
+            ? "图形验证码错误或已失效，请重试"
+            : status === 428 || code === "CAPTCHA_REQUIRED"
+              ? "请输入图形验证码"
+              : messageOf(err),
+        )
+      } else if (status === 409 && code === "ALREADY_LOGGED_IN") {
         setForce(true)
-        setError(`该账号已在${detail.device_name || "其他设备"}登录，再次提交将挤掉该设备`)
+        setError(`该账号已在${info?.device_name || "其他设备"}登录，再次提交将挤掉该设备`)
       } else {
         setError(messageOf(err))
       }
@@ -60,6 +102,25 @@ export function LoginForm({
         密码
         <input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       </label>
+      {captchaNeeded ? (
+        <label>
+          图形验证码
+          <span className="ak-row">
+            <input
+              value={captchaCode}
+              autoComplete="off"
+              placeholder="输入图中字符"
+              onChange={(event) => setCaptchaCode(event.target.value)}
+            />
+            {captchaImage ? (
+              <img src={captchaImage} alt="captcha" style={{ height: 36, cursor: "pointer" }} onClick={() => void loadCaptcha()} />
+            ) : null}
+            <button type="button" onClick={() => void loadCaptcha()}>
+              换一张
+            </button>
+          </span>
+        </label>
+      ) : null}
       {error ? <p className="ak-error">{error}</p> : null}
       <button type="submit" disabled={busy}>
         {busy ? "登录中…" : force ? "强制登录" : "登录"}

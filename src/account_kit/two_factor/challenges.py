@@ -37,17 +37,29 @@ class ChallengeStore:
         self._lock = threading.Lock()
         self._items: Dict[str, Challenge] = {}
 
-    def create(self, user_id: uuid.UUID, hashed_password: str, device_name: str = "") -> str:
+    def create(
+        self,
+        user_id: uuid.UUID,
+        hashed_password: str,
+        device_name: str = "",
+        ttl_seconds: Optional[int] = None,
+    ) -> str:
         raw = secrets.token_urlsafe(32)
         now = time.monotonic()
+        ttl = TTL_SECONDS if ttl_seconds is None else ttl_seconds
         with self._lock:
+            self._purge_expired_unlocked(now)
             self._items[_h(raw)] = Challenge(
                 user_id=user_id,
                 pw_fp=password_fingerprint(hashed_password),
-                expires_at=now + TTL_SECONDS,
+                expires_at=now + ttl,
                 device_name=device_name or "",
             )
         return raw
+
+    def _purge_expired_unlocked(self, now: float) -> None:
+        for key in [key for key, item in self._items.items() if item.expires_at <= now]:
+            del self._items[key]
 
     def get(self, raw: Optional[str]) -> Optional[Challenge]:
         if not raw or len(raw) > 256:

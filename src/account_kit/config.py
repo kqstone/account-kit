@@ -54,6 +54,10 @@ class AccountKitConfig:
     two_factor_enabled: bool = True
     role_change_enabled: bool = False
     trusted_device_days: int = 30
+    # Login 2FA challenge lifetime and wrong-code limit per challenge. Read on each
+    # request, so a host may update them at runtime (e.g. from admin settings).
+    two_factor_challenge_ttl_seconds: int = 300
+    two_factor_max_attempts: int = 5
     # Email code as an alternative second factor: login fallback
     # (POST /login/2fa/email/send + ``email_code``) and disabling 2FA in settings
     # (POST /2fa/disable/email-code + ``email_code``). Off by default.
@@ -76,6 +80,12 @@ class AccountKitConfig:
     on_login: Optional[UserHook] = None
     on_password_changed: Optional[UserHook] = None
     on_deleted: Optional[UserHook] = None
+
+    def challenge_ttl(self) -> int:
+        return max(30, int(self.two_factor_challenge_ttl_seconds or 300))
+
+    def challenge_max_attempts(self) -> int:
+        return max(1, int(self.two_factor_max_attempts or 5))
 
     def code_secret(self) -> str:
         return self.secret_key or self.jwt_secret

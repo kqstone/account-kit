@@ -242,3 +242,35 @@ async def test_captcha_counts_unknown_users_by_ip(api):
     )
     assert passed.status_code == 401
     assert passed.json()["detail"]["code"] == "INVALID_CREDENTIALS"
+
+
+async def test_challenge_ttl_and_attempts_from_config(api):
+    import time as _time
+
+    from account_kit.two_factor.challenges import challenge_store
+
+    _headers, totp, _recovery = await _mfa_user(api)
+    config = get_config()
+    config.two_factor_challenge_ttl_seconds = 90
+    config.two_factor_max_attempts = 2
+    client = api["client"]
+    detail = await _challenge(api)
+    assert detail["expires_in"] == 90
+    item = challenge_store.get(detail["challenge_token"])
+    assert 85 <= item.expires_at - _time.monotonic() <= 90
+    token = detail["challenge_token"]
+    first = await client.post("/api/auth/login/2fa", data={"challenge_token": token, "code": "000000"})
+    assert first.json()["detail"]["attempts_left"] == 1
+    # Changed at runtime: read on each request.
+    config.two_factor_max_attempts = 3
+    second = await client.post("/api/auth/login/2fa", data={"challenge_token": token, "code": "000000"})
+    assert second.json()["detail"]["attempts_left"] == 1
+    third = await client.post("/api/auth/login/2fa", data={"challenge_token": token, "code": "000000"})
+    assert third.status_code == 401
+    assert third.json()["detail"]["code"] == "MFA_TOO_MANY_ATTEMPTS"
+
+    item_token = (await _challenge(api))["challenge_token"]
+    challenge_store.get(item_token).expires_at = _time.monotonic() - 1
+    expired = await client.post("/api/auth/login/2fa", data={"challenge_token": item_token, "code": totp.now()})
+    assert expired.status_code == 401
+    assert expired.json()["detail"]["code"] == "MFA_CHALLENGE_INVALID"
