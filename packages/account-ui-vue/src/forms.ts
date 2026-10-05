@@ -20,12 +20,16 @@ export const LoginForm = defineComponent({
   props: {
     client: { type: Object as PropType<AccountClient>, required: true },
     deviceName: { type: String, default: "" },
+    initialUsername: { type: String, default: "" },
+    initialPassword: { type: String, default: "" },
+    trustedDeviceToken: { type: [String, Function] as PropType<string | ((username: string) => string)>, default: "" },
+    beforeSubmit: { type: Function as PropType<() => boolean | Promise<boolean | void>>, default: null },
   },
-  emits: ["success"],
-  setup(props, { emit }) {
+  emits: ["success", "mfa"],
+  setup(props, { emit, slots }) {
     ensureAccountStyle()
-    const username = ref("")
-    const password = ref("")
+    const username = ref(props.initialUsername || "")
+    const password = ref(props.initialPassword || "")
     const error = ref("")
     const busy = ref(false)
     const force = ref(false)
@@ -34,17 +38,29 @@ export const LoginForm = defineComponent({
       error.value = ""
       busy.value = true
       try {
-        const token = await props.client.login(username.value.trim(), password.value, {
+        if (props.beforeSubmit) {
+          const ok = await props.beforeSubmit()
+          if (ok === false) return
+        }
+        const name = username.value.trim()
+        const trusted =
+          typeof props.trustedDeviceToken === "function" ? props.trustedDeviceToken(name) : props.trustedDeviceToken
+        const token = await props.client.login(name, password.value, {
           force: force.value,
           deviceName: props.deviceName || undefined,
+          trustedDeviceToken: trusted || undefined,
         })
-        emit("success", token.access_token)
+        emit("success", token.access_token, { username: username.value, password: password.value })
       } catch (err) {
         const body = err instanceof AccountApiError ? err.body : null
         const detail =
           body && typeof body === "object" && "detail" in body
-            ? (body as { detail?: { code?: string; device_name?: string } }).detail
+            ? (body as { detail?: { code?: string; device_name?: string; challenge_token?: string } }).detail
             : null
+        if (err instanceof AccountApiError && err.status === 401 && detail?.code === "MFA_REQUIRED" && detail.challenge_token) {
+          emit("mfa", { ...detail, username: username.value, password: password.value, force: force.value })
+          return
+        }
         if (err instanceof AccountApiError && err.status === 409 && detail?.code === "ALREADY_LOGGED_IN") {
           force.value = true
           error.value = `该账号已在${detail.device_name || "其他设备"}登录，再次提交将挤掉该设备`
@@ -69,6 +85,7 @@ export const LoginForm = defineComponent({
         [
           field("用户名", h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
           field("密码", h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (event: Event) => { password.value = textOf(event) } })),
+          slots.default?.(),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
           h("button", { type: "submit", disabled: busy.value }, busy.value ? "登录中…" : force.value ? "强制登录" : "登录"),
         ],
@@ -81,9 +98,11 @@ export const RegisterForm = defineComponent({
   props: {
     client: { type: Object as PropType<AccountClient>, required: true },
     language: { type: String, default: "zh" },
+    extraPayload: { type: Object as PropType<Record<string, unknown>>, default: () => ({}) },
+    beforeSubmit: { type: Function as PropType<() => boolean | Promise<boolean | void>>, default: null },
   },
   emits: ["success"],
-  setup(props, { emit }) {
+  setup(props, { emit, slots }) {
     ensureAccountStyle()
     const username = ref("")
     const email = ref("")
@@ -123,6 +142,10 @@ export const RegisterForm = defineComponent({
       error.value = ""
       busy.value = true
       try {
+        if (props.beforeSubmit) {
+          const ok = await props.beforeSubmit()
+          if (ok === false) return
+        }
         const user = await props.client.register({
           username: username.value.trim(),
           email: email.value.trim(),
@@ -133,6 +156,7 @@ export const RegisterForm = defineComponent({
           gender: gender.value || undefined,
           birth_year_month: birth.value || undefined,
           role: role.value || undefined,
+          ...(props.extraPayload || {}),
         })
         emit("success", user)
       } catch (err) {
@@ -181,6 +205,7 @@ export const RegisterForm = defineComponent({
                 ),
               )
             : null,
+          slots.default?.(),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
           h("button", { type: "submit", disabled: busy.value }, busy.value ? "提交中…" : "注册"),
         ],

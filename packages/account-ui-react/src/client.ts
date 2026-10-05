@@ -70,10 +70,15 @@ export function createAccountClient(baseUrl: string) {
         body: JSON.stringify(payload),
       }) as Promise<AccountUser>
     },
-    login(username: string, password: string, extra?: { force?: boolean; deviceName?: string }) {
+    login(
+      username: string,
+      password: string,
+      extra?: { force?: boolean; deviceName?: string; trustedDeviceToken?: string },
+    ) {
       const form = new URLSearchParams({ username, password })
       if (extra?.force) form.set("force", "true")
       if (extra?.deviceName) form.set("device_name", extra.deviceName)
+      if (extra?.trustedDeviceToken) form.set("trusted_device_token", extra.trustedDeviceToken)
       return request("/login", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
