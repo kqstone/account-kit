@@ -1,6 +1,6 @@
 {
   "name": "@kqstone/account-ui-react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "React login, register, reset-password forms and tier badge for account-kit",
   "keywords": [
     "account-kit",
