@@ -223,7 +223,7 @@ async def login_user(
         from account_kit.two_factor.service import is_enabled, mfa_required, trusted_device_ok
 
         if await is_enabled(db, user.id) and not await trusted_device_ok(db, user.id, trusted_device_token):
-            raise mfa_required(user, sanitize_device_name(device_name))
+            raise mfa_required(user, sanitize_device_name(device_name), config)
 
     return await complete_login(db, config, user, force=force, device_name=device_name)
 

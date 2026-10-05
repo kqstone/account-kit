@@ -13,6 +13,14 @@ await seed_defaults(session)
 mount_account(app, get_db, AccountKitConfig(jwt_secret="..."))
 ```
 
+### 可选：邮箱两步验证、登录图形验证码
+
+两项默认关闭，由宿主在 `AccountKitConfig` 里打开：
+
+- `two_factor_email_enabled=True`：两步验证可用邮箱验证码代替验证器（"跳过 2FA"）。登录时 `POST /login/2fa/email/send`（`challenge_token`、`language`）发码，再把 `email_code` 提交到 `POST /login/2fa`；设置里 `POST /2fa/disable/email-code` 发码，`POST /2fa/disable` 带 `email_code` 关闭。`MFA_REQUIRED` 的 `detail` 里 `email_available` 为真，`methods` 含 `email`。
+- `captcha_verifier=fn(captcha_id, captcha_code) -> bool`（可为 async）：同一 IP 或用户名在 `captcha_fail_window_seconds` 内失败 `captcha_fail_threshold` 次后，`POST /login` 必须带 `captcha_id`、`captcha_code`，否则 428 `CAPTCHA_REQUIRED`，错了 400 `CAPTCHA_INVALID`；密码错误返回 401 `INVALID_CREDENTIALS`（带 `captcha_required`）。验证码图片由宿主提供（界面包从 `GET {api_prefix}/captcha` 取 `captcha_id`、`image_base64`）。反向代理后用 `client_ip=fn(request)` 取真实 IP。
+- `before_two_factor=async fn(request, user)`：每次校验第二因素、发邮箱码前调用，宿主可在这里限流。
+
 ## 安装
 
 Python 包从 [PyPI](https://pypi.org/project/account-kit/) 安装：

@@ -33,10 +33,34 @@ export const LoginForm = defineComponent({
     const error = ref("")
     const busy = ref(false)
     const force = ref(false)
+    // Image captcha (428 CAPTCHA_REQUIRED after repeated failures, when the host enables it)
+    const captchaNeeded = ref(false)
+    const captchaId = ref("")
+    const captchaImage = ref("")
+    const captchaCode = ref("")
+
+    async function loadCaptcha() {
+      captchaId.value = ""
+      captchaImage.value = ""
+      captchaCode.value = ""
+      if (typeof props.client.captcha !== "function") return
+      try {
+        const data = await props.client.captcha()
+        captchaId.value = data.captcha_id || ""
+        captchaImage.value = data.image_base64 ? `data:image/png;base64,${data.image_base64}` : ""
+      } catch {
+        error.value = "验证码加载失败，请点击换一张"
+      }
+    }
 
     async function submit() {
       error.value = ""
+      if (captchaNeeded.value && (!captchaId.value || !captchaCode.value.trim())) {
+        error.value = "请输入图形验证码"
+        return
+      }
       busy.value = true
+      const usedCaptcha = captchaNeeded.value
       try {
         if (props.beforeSubmit) {
           const ok = await props.beforeSubmit()
@@ -49,14 +73,34 @@ export const LoginForm = defineComponent({
           force: force.value,
           deviceName: props.deviceName || undefined,
           trustedDeviceToken: trusted || undefined,
+          captchaId: usedCaptcha ? captchaId.value : undefined,
+          captchaCode: usedCaptcha ? captchaCode.value.trim() : undefined,
         })
+        captchaNeeded.value = false
         emit("success", token.access_token, { username: username.value, password: password.value })
       } catch (err) {
         const body = err instanceof AccountApiError ? err.body : null
         const detail =
           body && typeof body === "object" && "detail" in body
-            ? (body as { detail?: { code?: string; device_name?: string; challenge_token?: string } }).detail
+            ? (body as {
+                detail?: { code?: string; device_name?: string; challenge_token?: string; captcha_required?: boolean }
+              }).detail
             : null
+        const status = err instanceof AccountApiError ? err.status : 0
+        const code = detail && typeof detail === "object" ? detail.code : undefined
+        // A captcha is single-use: any reply after sending one needs a fresh image.
+        if (usedCaptcha) captchaNeeded.value = false
+        if (status === 428 || code === "CAPTCHA_REQUIRED" || code === "CAPTCHA_INVALID" || (detail && typeof detail === "object" && detail.captcha_required)) {
+          captchaNeeded.value = true
+          await loadCaptcha()
+          error.value =
+            code === "CAPTCHA_INVALID"
+              ? "图形验证码错误或已失效，请重试"
+              : status === 428 || code === "CAPTCHA_REQUIRED"
+                ? "请输入图形验证码"
+                : messageOf(err)
+          return
+        }
         if (err instanceof AccountApiError && err.status === 401 && detail?.code === "MFA_REQUIRED" && detail.challenge_token) {
           emit("mfa", { ...detail, username: username.value, password: password.value, force: force.value })
           return
@@ -85,6 +129,25 @@ export const LoginForm = defineComponent({
         [
           field("用户名", h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
           field("密码", h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (event: Event) => { password.value = textOf(event) } })),
+          captchaNeeded.value
+            ? field(
+                "图形验证码",
+                h("span", { class: "ak-row" }, [
+                  h("input", {
+                    value: captchaCode.value,
+                    autocomplete: "off",
+                    placeholder: "输入图中字符",
+                    onInput: (event: Event) => {
+                      captchaCode.value = textOf(event)
+                    },
+                  }),
+                  captchaImage.value
+                    ? h("img", { src: captchaImage.value, alt: "captcha", style: "height:36px;cursor:pointer", onClick: () => void loadCaptcha() })
+                    : null,
+                  h("button", { type: "button", onClick: () => void loadCaptcha() }, "换一张"),
+                ]),
+              )
+            : null,
           slots.default?.(),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
           h("button", { type: "submit", disabled: busy.value }, busy.value ? "登录中…" : force.value ? "强制登录" : "登录"),

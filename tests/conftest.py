@@ -7,7 +7,9 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from account_kit import init_db, mount_account
+from account_kit.captcha import login_fail_tracker
 from account_kit.config import AccountKitConfig
+from account_kit.two_factor.challenges import challenge_store
 
 
 def _database_url() -> str:
@@ -23,6 +25,8 @@ async def api():
     async with engine.begin() as conn:
         await conn.execute(text("DROP SCHEMA IF EXISTS auth CASCADE"))
     await init_db(engine)
+    login_fail_tracker.clear_all()
+    challenge_store._items.clear()
     sessions = async_sessionmaker(engine, expire_on_commit=False)
     sent = []
 
