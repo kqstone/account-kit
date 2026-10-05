@@ -81,6 +81,10 @@ export function RegisterForm({
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [fullName, setFullName] = useState("")
+  const [institution, setInstitution] = useState("")
+  const [gender, setGender] = useState("")
+  const [birth, setBirth] = useState("")
   const [code, setCode] = useState("")
   const [role, setRole] = useState("")
   const [roles, setRoles] = useState<Array<{ code: string; name: string }>>([])
@@ -125,6 +129,10 @@ export function RegisterForm({
         email: email.trim(),
         password,
         code: code.trim(),
+        full_name: fullName.trim() || undefined,
+        institution: institution.trim() || undefined,
+        gender: gender || undefined,
+        birth_year_month: birth || undefined,
         role: role || undefined,
       })
       onSuccess(user)
@@ -148,6 +156,26 @@ export function RegisterForm({
       <label>
         密码
         <input type="password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
+      </label>
+      <label>
+        姓名（可选）
+        <input value={fullName} autoComplete="name" onChange={(event) => setFullName(event.target.value)} />
+      </label>
+      <label>
+        机构（可选）
+        <input value={institution} onChange={(event) => setInstitution(event.target.value)} />
+      </label>
+      <label>
+        性别（可选）
+        <select value={gender} onChange={(event) => setGender(event.target.value)}>
+          <option value="">未指定</option>
+          <option value="male">男</option>
+          <option value="female">女</option>
+        </select>
+      </label>
+      <label>
+        出生年月（可选）
+        <input type="month" value={birth} onChange={(event) => setBirth(event.target.value)} />
       </label>
       <div className="ak-row">
         <label>

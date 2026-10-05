@@ -88,6 +88,10 @@ export const RegisterForm = defineComponent({
     const username = ref("")
     const email = ref("")
     const password = ref("")
+    const fullName = ref("")
+    const institution = ref("")
+    const gender = ref("")
+    const birth = ref("")
     const code = ref("")
     const role = ref("")
     const roles = ref<Array<{ code: string; name: string }>>([])
@@ -124,6 +128,10 @@ export const RegisterForm = defineComponent({
           email: email.value.trim(),
           password: password.value,
           code: code.value.trim(),
+          full_name: fullName.value.trim() || undefined,
+          institution: institution.value.trim() || undefined,
+          gender: gender.value || undefined,
+          birth_year_month: birth.value || undefined,
           role: role.value || undefined,
         })
         emit("success", user)
@@ -148,6 +156,17 @@ export const RegisterForm = defineComponent({
           field("用户名", h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
           field("邮箱", h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
           field("密码", h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
+          field("姓名（可选）", h("input", { value: fullName.value, autocomplete: "name", onInput: (event: Event) => { fullName.value = textOf(event) } })),
+          field("机构（可选）", h("input", { value: institution.value, onInput: (event: Event) => { institution.value = textOf(event) } })),
+          field(
+            "性别（可选）",
+            h(
+              "select",
+              { value: gender.value, onChange: (event: Event) => { gender.value = textOf(event) } },
+              [h("option", { value: "" }, "未指定"), h("option", { value: "male" }, "男"), h("option", { value: "female" }, "女")],
+            ),
+          ),
+          field("出生年月（可选）", h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })),
           h("div", { class: "ak-row" }, [
             field("验证码", h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
             h("button", { type: "button", disabled: sending.value, onClick: () => void sendCode() }, sending.value ? "发送中…" : "发送验证码"),
