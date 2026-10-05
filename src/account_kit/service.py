@@ -140,6 +140,14 @@ def _clear_session(user: User) -> None:
     user.session_device_name = None
 
 
+async def _revoke_second_factor_memory(db: AsyncSession, user_id) -> None:
+    from account_kit.two_factor.challenges import challenge_store
+    from account_kit.two_factor.service import revoke_trusted
+
+    await revoke_trusted(db, user_id)
+    challenge_store.discard_user(user_id)
+
+
 async def register_user(db: AsyncSession, config: AccountKitConfig, payload: RegisterRequest) -> User:
     if not email_allowed(config, payload.email):
         allowed = ", ".join(config.allowed_email_domains)
@@ -196,6 +204,8 @@ async def login_user(
     password: str,
     force: bool = False,
     device_name: str = "",
+    trusted_device_token: str = "",
+    mfa_satisfied: bool = False,
 ) -> tuple[User, str]:
     user = await get_user_by_username(db, (username or "").strip())
     if not user or not verify_password(password, user.hashed_password):
@@ -209,6 +219,23 @@ async def login_user(
     if user.approval_status != "approved":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号尚未通过审批")
 
+    if config.two_factor_enabled and not mfa_satisfied:
+        from account_kit.two_factor.service import is_enabled, mfa_required, trusted_device_ok
+
+        if await is_enabled(db, user.id) and not await trusted_device_ok(db, user.id, trusted_device_token):
+            raise mfa_required(user, sanitize_device_name(device_name))
+
+    return await complete_login(db, config, user, force=force, device_name=device_name)
+
+
+async def complete_login(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    *,
+    force: bool = False,
+    device_name: str = "",
+) -> tuple[User, str]:
     session_id = None
     if config.session_mode == "single_device":
         if _session_active(config, user) and not force:
@@ -248,6 +275,7 @@ async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str,
     user.hashed_password = hash_password(new_password)
     if config.session_mode == "single_device":
         _clear_session(user)
+    await _revoke_second_factor_memory(db, user.id)
     if config.on_password_changed is not None:
         await config.on_password_changed(db, user)
     await db.commit()
@@ -292,6 +320,7 @@ async def update_profile(
         user.hashed_password = hash_password(payload.new_password)
         if config.session_mode == "single_device":
             _clear_session(user)
+        await _revoke_second_factor_memory(db, user.id)
         if config.on_password_changed is not None:
             await config.on_password_changed(db, user)
 
