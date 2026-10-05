@@ -1,3 +1,5 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, Form, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,11 +10,18 @@ from account_kit.service import complete_login, get_user_by_id
 from account_kit.two_factor.challenges import MAX_ATTEMPTS, challenge_store, password_fingerprint
 from account_kit.two_factor.service import (
     admin_reset,
+    device_public,
     disable,
     enable,
     issue_trusted_device,
+    list_trusted_devices,
+    regenerate_recovery_codes,
+    revoke_all_trusted,
+    revoke_trusted_device,
     start_setup,
+    status_payload,
     verify_second_factor,
+    _require_password,
 )
 
 router = APIRouter(tags=["auth"])
@@ -23,29 +32,86 @@ class CodeBody(BaseModel):
     code: str
 
 
+class PasswordBody(BaseModel):
+    password: Optional[str] = None
+
+
 class DisableBody(BaseModel):
     password: str
-    code: str = ""
-    recovery_code: str = ""
+    code: Optional[str] = ""
+    recovery_code: Optional[str] = ""
+
+
+def _factor(body: DisableBody):
+    return body.code or "", body.recovery_code or ""
+
+
+def _require_feature() -> None:
+    if not get_config().two_factor_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+
+
+@router.get("/2fa/status")
+async def two_factor_status(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _require_feature()
+    return await status_payload(db, get_config(), current_user)
 
 
 @router.post("/2fa/setup")
-async def setup(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    if not get_config().two_factor_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+async def setup(
+    body: Optional[PasswordBody] = None,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    _require_feature()
+    if body and body.password:
+        _require_password(current_user, body.password)
     return await start_setup(db, get_config(), current_user)
 
 
 @router.post("/2fa/enable")
 async def enable_2fa(body: CodeBody, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _require_feature()
     codes = await enable(db, get_config(), current_user, body.code)
     return {"enabled": True, "recovery_codes": codes}
 
 
 @router.post("/2fa/disable")
 async def disable_2fa(body: DisableBody, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
-    await disable(db, get_config(), current_user, body.password, body.code, body.recovery_code)
+    _require_feature()
+    code, recovery = _factor(body)
+    await disable(db, get_config(), current_user, body.password, code, recovery)
     return {"enabled": False}
+
+
+@router.post("/2fa/recovery-codes/regenerate")
+async def regenerate_codes(body: DisableBody, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _require_feature()
+    code, recovery = _factor(body)
+    codes = await regenerate_recovery_codes(db, get_config(), current_user, body.password, code, recovery)
+    return {"status": "success", "recovery_codes": codes}
+
+
+@router.get("/trusted-devices")
+async def trusted_devices(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _require_feature()
+    rows = await list_trusted_devices(db, current_user.id)
+    return {"devices": [device_public(row) for row in rows]}
+
+
+@router.delete("/trusted-devices/{device_id}")
+async def revoke_device(device_id: str, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _require_feature()
+    if not await revoke_trusted_device(db, current_user.id, device_id):
+        raise HTTPException(status_code=404, detail={"code": "DEVICE_NOT_FOUND", "message": "设备不存在"})
+    return {"status": "success"}
+
+
+@router.delete("/trusted-devices")
+async def revoke_devices(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+    _require_feature()
+    revoked = await revoke_all_trusted(db, current_user.id)
+    return {"status": "success", "revoked": revoked}
 
 
 @router.post("/login/2fa")

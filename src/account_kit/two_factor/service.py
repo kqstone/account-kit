@@ -3,11 +3,12 @@ from __future__ import annotations
 import hashlib
 import hmac
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import AccountKitConfig
@@ -179,6 +180,107 @@ async def trusted_device_ok(db: AsyncSession, user_id, token: Optional[str]) -> 
         return False
     row.last_used_at = datetime.now(timezone.utc)
     return True
+
+
+def _require_password(user: User, password: str) -> None:
+    from account_kit.security import verify_password
+
+    if not verify_password(password or "", user.hashed_password):
+        raise HTTPException(status_code=400, detail="当前密码错误")
+
+
+async def recovery_codes_remaining(db: AsyncSession, user_id) -> int:
+    result = await db.execute(
+        select(func.count())
+        .select_from(TwoFactorRecoveryCode)
+        .where(TwoFactorRecoveryCode.user_id == user_id, TwoFactorRecoveryCode.used_at.is_(None))
+    )
+    return int(result.scalar_one())
+
+
+async def list_trusted_devices(db: AsyncSession, user_id) -> List[TrustedDevice]:
+    now = datetime.now(timezone.utc)
+    result = await db.execute(
+        select(TrustedDevice)
+        .where(
+            TrustedDevice.user_id == user_id,
+            TrustedDevice.revoked_at.is_(None),
+            TrustedDevice.expires_at > now,
+        )
+        .order_by(TrustedDevice.created_at.desc())
+    )
+    return list(result.scalars().all())
+
+
+def device_public(dev: TrustedDevice) -> dict:
+    return {
+        "id": str(dev.id),
+        "device_name": dev.device_name or "未知设备",
+        "created_at": dev.created_at.isoformat() if dev.created_at else None,
+        "last_used_at": dev.last_used_at.isoformat() if dev.last_used_at else None,
+        "expires_at": dev.expires_at.isoformat() if dev.expires_at else None,
+    }
+
+
+async def status_payload(db: AsyncSession, config: AccountKitConfig, user: User) -> dict:
+    row = await get_row(db, user.id)
+    enabled = bool(row and row.enabled and row.secret)
+    devices = await list_trusted_devices(db, user.id) if enabled else []
+    return {
+        "enabled": enabled,
+        "enabled_at": row.enabled_at.isoformat() if enabled and row.enabled_at else None,
+        "recovery_codes_remaining": await recovery_codes_remaining(db, user.id) if enabled else 0,
+        "trusted_devices": len(devices),
+        "email_available": False,
+        "trusted_device_days": int(config.trusted_device_days),
+    }
+
+
+async def regenerate_recovery_codes(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    password: str,
+    code: str = "",
+    recovery_code: str = "",
+) -> List[str]:
+    _require_password(user, password)
+    if not await is_enabled(db, user.id):
+        raise HTTPException(status_code=400, detail="未开启两步验证")
+    await verify_second_factor(db, config, user, code=code, recovery_code=recovery_code)
+    codes = _new_recovery_codes()
+    existing = await db.execute(select(TwoFactorRecoveryCode).where(TwoFactorRecoveryCode.user_id == user.id))
+    for old in existing.scalars().all():
+        await db.delete(old)
+    for item in codes:
+        db.add(TwoFactorRecoveryCode(user_id=user.id, code_hash=_hash_recovery(config.code_secret(), user.id, item)))
+    await db.commit()
+    return codes
+
+
+async def revoke_trusted_device(db: AsyncSession, user_id, device_id: str) -> bool:
+    try:
+        parsed = uuid.UUID(str(device_id))
+    except ValueError:
+        return False
+    row = await db.get(TrustedDevice, parsed)
+    if row is None or row.user_id != user_id or row.revoked_at is not None:
+        return False
+    row.revoked_at = datetime.now(timezone.utc)
+    await db.commit()
+    return True
+
+
+async def revoke_all_trusted(db: AsyncSession, user_id) -> int:
+    result = await db.execute(
+        select(TrustedDevice).where(TrustedDevice.user_id == user_id, TrustedDevice.revoked_at.is_(None))
+    )
+    rows = list(result.scalars().all())
+    now = datetime.now(timezone.utc)
+    for row in rows:
+        row.revoked_at = now
+    await db.commit()
+    return len(rows)
 
 
 async def revoke_trusted(db: AsyncSession, user_id) -> None:
