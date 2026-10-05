@@ -1,4 +1,4 @@
-from sqlalchemy import MetaData
+from sqlalchemy import DDL, MetaData, event
 from sqlalchemy.orm import DeclarativeBase
 
 NAMING = {
@@ -12,3 +12,12 @@ NAMING = {
 
 class Base(DeclarativeBase):
     metadata = MetaData(naming_convention=NAMING)
+
+
+# ``Base.metadata.create_all`` (sync or async, with or without init_db) creates
+# the ``auth`` schema first, so a brand-new empty database just works.
+event.listen(
+    Base.metadata,
+    "before_create",
+    DDL("CREATE SCHEMA IF NOT EXISTS auth").execute_if(dialect="postgresql"),
+)
