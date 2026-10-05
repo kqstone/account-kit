@@ -2,7 +2,15 @@
   "name": "@kqstone/account-ui-vue",
   "version": "0.1.0",
   "description": "Vue 3 login, register, reset-password forms and tier badge for account-kit",
-  "keywords": ["account-kit", "vue", "vue3", "login", "register", "auth", "fastapi"],
+  "keywords": [
+    "account-kit",
+    "vue",
+    "vue3",
+    "login",
+    "register",
+    "auth",
+    "fastapi"
+  ],
   "license": "MIT",
   "author": "kqstone",
   "type": "module",
@@ -17,13 +25,20 @@
     },
     "./package.json": "./package.json"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
     "typecheck": "tsc --noEmit",
     "prepare": "node ../../scripts/prepare-ui.mjs",
     "prepack": "npm run build"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kqstone/account-kit.git",
+    "directory": "packages/account-ui-vue"
   },
   "peerDependencies": {
     "vue": "^3.2.0"
@@ -34,6 +49,7 @@
     "vue": "^3.5.0"
   },
   "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
     "access": "public"
   }
 }

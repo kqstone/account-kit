@@ -2,7 +2,7 @@ name: release
 
 # Push a tag `v<version>` (e.g. v0.1.0) to publish:
 #   - Python package `account-kit` -> PyPI (Trusted Publishing, no token)
-#   - @kqstone/account-ui-vue and @kqstone/account-ui-react -> npmjs.com (public)
+#   - @kqstone/account-ui-vue and @kqstone/account-ui-react -> GitHub Packages
 # The tag version must equal the version in pyproject.toml and both package.json files.
 # A manual run (workflow_dispatch) on a branch only runs the checks and builds;
 # the publish jobs run only for `v*` tag refs.
@@ -138,30 +138,31 @@ jobs:
           attestations: false
 
   publish-npm:
-    name: Publish to npm
+    name: Publish to GitHub Packages
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [version, python, npm]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          registry-url: https://registry.npmjs.org
-      # Auth uses an npm access token in the NPM_TOKEN repository secret (needed for
-      # the first publish, before the packages exist on npmjs.com).
+          registry-url: https://npm.pkg.github.com
+          scope: "@kqstone"
+      # Auth uses the workflow GITHUB_TOKEN (packages: write). No NPM_TOKEN secret.
       #
-      # To switch to npm trusted publishing (OIDC) later:
-      #   1. On npmjs.com, for each package: Settings -> Trusted publishing -> GitHub Actions,
-      #      user `kqstone`, repository `account-kit`, workflow `release.yml`.
-      #   2. Give this job `permissions: { contents: read, id-token: write }`.
-      #   3. Use npm >= 11.5.1 (Node 22 ships npm 10): add `- run: npm install -g npm@latest`.
-      #   4. Remove NODE_AUTH_TOKEN below and delete the NPM_TOKEN secret.
-      # Do not pass --provenance while the repo is private: npm provenance requires a
-      # public source repository.
+      # To move these packages to npmjs.com later:
+      #   1. Change publishConfig.registry to the default (or remove it) and keep access: public.
+      #   2. Point setup-node registry-url at https://registry.npmjs.org (drop scope if unused).
+      #   3. Publish with NODE_AUTH_TOKEN from secrets.NPM_TOKEN, or switch to npm trusted
+      #      publishing (OIDC: npm >= 11.5.1, id-token: write; no --provenance while private).
+      #   4. Update README install / .npmrc instructions.
       - name: Publish
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for pkg in account-ui-vue account-ui-react; do
             (
@@ -169,8 +170,8 @@ jobs:
               npm ci
               name=$(node -p "require('./package.json').name")
               version=$(node -p "require('./package.json').version")
-              if npm view "$name@$version" version >/dev/null 2>&1; then
-                echo "$name@$version is already on npmjs.com; skipping"
+              if npm view "$name@$version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
+                echo "$name@$version is already on GitHub Packages; skipping"
               else
                 npm publish --access public
               fi

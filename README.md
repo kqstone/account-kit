@@ -15,8 +15,22 @@ mount_account(app, get_db, AccountKitConfig(jwt_secret="..."))
 
 ## 安装
 
+Python 包从 [PyPI](https://pypi.org/project/account-kit/) 安装：
+
 ```bash
 pip install account-kit
+```
+
+界面包发在 GitHub Packages（不是 npmjs.com）。安装前在项目根写 `.npmrc`：
+
+```
+@kqstone:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
+```
+
+`NPM_TOKEN` 需要带 `read:packages` 的 classic PAT（或等价权限）。CI 里可以用 `GITHUB_TOKEN`，但要先在包的 **Manage Actions access** 里给消费仓库（如 `kqstone/dedd-online`、`kqstone/dental-case-pro`）Read 权限。从 private 仓库首次发布的包默认为 private；可在包设置里改成 public，但无论可见性如何，安装都仍需要 token。
+
+```bash
 npm install @kqstone/account-ui-vue    # Vue 3
 npm install @kqstone/account-ui-react  # React 18 / 19
 ```
@@ -43,7 +57,9 @@ cd packages/account-ui-vue && npm ci     # 或 packages/account-ui-react
 版本号写在 `pyproject.toml` 和两个 `packages/*/package.json` 里，三处保持一致。推送 `v<版本号>` tag（如 `v0.1.0`）后，GitHub Action 先校验 tag 与三处版本一致、跑测试和构建，然后：
 
 - Python 包发布到 [PyPI](https://pypi.org/project/account-kit/)（Trusted Publishing，不用 token）
-- 两个界面包以 public 发布到 [npmjs.com](https://www.npmjs.com/)
+- 两个界面包发布到 [GitHub Packages](https://github.com/kqstone?tab=packages)（`GITHUB_TOKEN`，`packages: write`）
+
+日后若改发 npmjs.com：把 `publishConfig.registry` 改回默认、workflow 改为 `registry.npmjs.org` + `NPM_TOKEN`（或 npm trusted publishing），并更新本节安装说明。
 
 ## 许可证
 

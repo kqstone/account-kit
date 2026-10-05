@@ -2,6 +2,8 @@
 
 [account-kit](https://pypi.org/project/account-kit/) 的 Vue 3 界面组件：`LoginForm`、`RegisterForm`、`ResetPasswordForm`、`TierBadge`，以及请求客户端 `createAccountClient`。
 
+安装前在项目根配置 GitHub Packages（见仓库 README 的 `.npmrc` 说明）：
+
 ```bash
 npm install @kqstone/account-ui-vue
 ```
