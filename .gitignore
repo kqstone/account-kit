@@ -6,3 +6,4 @@ dist/
 *.egg-info/
 .mypy_cache/
 node_modules/
+*.tgz

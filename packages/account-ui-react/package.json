@@ -1,13 +1,38 @@
 {
   "name": "@kqstone/account-ui-react",
   "version": "0.1.0",
-  "description": "React login, register, reset, and tier badge for account-kit",
+  "description": "React login, register, reset-password forms and tier badge for account-kit",
+  "keywords": [
+    "account-kit",
+    "react",
+    "login",
+    "register",
+    "auth",
+    "fastapi"
+  ],
+  "license": "MIT",
+  "author": "kqstone",
   "type": "module",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
-  "files": ["src"],
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "prepare": "node ../../scripts/prepare-ui.mjs",
+    "prepack": "npm run build"
   },
   "repository": {
     "type": "git",
@@ -15,6 +40,16 @@
     "directory": "packages/account-ui-react"
   },
   "peerDependencies": {
-    "react": ">=18"
+    "react": "^18.0.0 || ^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0",
+    "tsup": "^8.5.1",
+    "typescript": "~5.9.3"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
   }
 }
