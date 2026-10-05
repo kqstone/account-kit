@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from "react"
 import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
+import { getMfaChallenge, type MfaChallenge } from "./mfa"
 
 function messageOf(error: unknown) {
   if (error instanceof AccountApiError) return error.message || "请求失败"
@@ -10,11 +11,15 @@ function messageOf(error: unknown) {
 export function LoginForm({
   client,
   deviceName,
+  trustedDeviceToken,
   onSuccess,
+  onMfa,
 }: {
   client: AccountClient
   deviceName?: string
+  trustedDeviceToken?: string | ((username: string) => string)
   onSuccess: (token: string) => void
+  onMfa?: (challenge: MfaChallenge & { username: string; password: string; force: boolean }) => void
 }) {
   ensureAccountStyle()
   const [username, setUsername] = useState("")
@@ -52,9 +57,12 @@ export function LoginForm({
     setBusy(true)
     const usedCaptcha = captchaNeeded
     try {
-      const token = await client.login(username.trim(), password, {
+      const name = username.trim()
+      const trusted = typeof trustedDeviceToken === "function" ? trustedDeviceToken(name) : trustedDeviceToken
+      const token = await client.login(name, password, {
         force,
         deviceName: deviceName || undefined,
+        trustedDeviceToken: trusted || undefined,
         captchaId: usedCaptcha ? captchaId : undefined,
         captchaCode: usedCaptcha ? captchaCode.trim() : undefined,
       })
@@ -85,6 +93,11 @@ export function LoginForm({
         setForce(true)
         setError(`该账号已在${info?.device_name || "其他设备"}登录，再次提交将挤掉该设备`)
       } else {
+        const mfa = getMfaChallenge(err)
+        if (mfa && onMfa) {
+          onMfa({ ...mfa, username, password, force })
+          return
+        }
         setError(messageOf(err))
       }
     } finally {

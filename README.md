@@ -56,10 +56,9 @@ npm install @kqstone/account-ui-react  # React 18 / 19
 
 不单独发布 client 包，请求客户端打进这两个界面包：
 
-- `@kqstone/account-ui-vue`：`LoginForm`、`RegisterForm`、`ResetPasswordForm`、`TierBadge`、`createAccountClient`
-- `@kqstone/account-ui-react`：同上
+- `@kqstone/account-ui-vue` / `@kqstone/account-ui-react`：`LoginForm`、`RegisterForm`、`ResetPasswordForm`、`TwoFactorSettings`、`TwoFactorLoginDialog`、`AvatarUploader`、`UserAvatar`、`ProfileFields`、`TierBadge`、`createAccountClient`
 
-界面包发布的是构建后的 `dist/`（ESM + `.d.ts`），样式在组件首次渲染时注入，不需要单独引入 CSS。
+界面包发布的是构建后的 `dist/`（ESM + `.d.ts`），样式在组件首次渲染时注入，不需要单独引入 CSS。2FA 设置页的二维码使用可选 peer `qrcode`，或由宿主传入 `renderQr(otpauthUri) => dataUrl`。文案内置中英，可用 `labels` 覆盖；Vue 不绑 vue-i18n，React 不依赖 antd。
 
 ## 本地开发
 
