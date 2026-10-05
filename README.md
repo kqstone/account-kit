@@ -24,6 +24,14 @@ mount_account(app, get_db, AccountKitConfig(jwt_secret="..."))
 
 `init_db` 和直接调用 `Base.metadata.create_all` 都会先建 `auth` schema（`CREATE SCHEMA IF NOT EXISTS`），空库可直接启动。React 与 Vue 的 `LoginForm` 在服务端要求时都会显示图形验证码。
 
+### 0.2.0：邮件模板覆盖、改密、头像、角色申请查询
+
+- **2FA 邮件模板**：`login_2fa` / `disable_2fa` 默认使用包内 `two_factor_login_{zh,en}.html`、`two_factor_disable_{zh,en}.html`（警示文案，`{{ brand }}` / `{{ code }}`）。其它 purpose 仍用 `verification_{lang}.html`（`{{ action }}` `{{ code }}` `{{ brand }}`）。
+- **宿主覆盖模板**：设 `email_template_dir` 后，Jinja 先从该目录按同名加载，找不到再回落包内默认。`email_template_map` 可把 purpose 指到相对文件名（支持 `{lang}`）；拒绝 `..` 与绝对路径。完全接管发送仍可用 `mailer`。
+- **`POST {api_prefix}/change-password`**：body `{ "old_password", "new_password" }`，默认**不要求**邮箱验证码（兼容 dedd）。成功后吊销受信设备、丢掉未完成的 2FA challenge；`session_mode==single_device` 时清会话。响应 `{ "status": "success", "detail": "密码修改成功" }`。dental 若要更严，设 `change_password_require_email_code=True`（可再带 `code`）。`PATCH /me` 改密仍走邮箱码，两条路径语义不同。
+- **可选头像**（默认关）：`avatar_enabled=True` 并注入 `avatar_save` / `avatar_delete` / `avatar_open`。端点：`POST/DELETE /me/avatar`、`GET /users/{id}/avatar`。存储与图片处理由宿主 callback 完成（Pillow **不是** kit 依赖）。漏配 `avatar_save` 或未启用时返回 501。未提供 `avatar_open` 时，仅当 `avatar_path` 是本地已存在文件才直接读取。
+- **`GET {api_prefix}/role-change-requests/me`**：当前用户 pending 申请，没有则 `null`（需 `role_change_enabled`）。
+
 ## 安装
 
 Python 包从 [PyPI](https://pypi.org/project/account-kit/) 安装：
@@ -65,7 +73,7 @@ cd packages/account-ui-vue && npm ci     # 或 packages/account-ui-react
 
 ## 发布
 
-版本号写在 `pyproject.toml` 和两个 `packages/*/package.json` 里，三处保持一致。推送 `v<版本号>` tag（如 `v0.1.0`）后，GitHub Action 先校验 tag 与三处版本一致、跑测试和构建，然后：
+版本号写在 `pyproject.toml`、`src/account_kit/__init__.py` 的 `__version__` 和两个 `packages/*/package.json` 里，发布前三处保持一致。推送 `v<版本号>` tag（如 `v0.2.0`）后，GitHub Action 先校验 tag 与三处版本一致、跑测试和构建，然后：
 
 - Python 包发布到 [PyPI](https://pypi.org/project/account-kit/)（Trusted Publishing，不用 token）
 - 两个界面包发布到 [GitHub Packages](https://github.com/kqstone?tab=packages)（`GITHUB_TOKEN`，`packages: write`）

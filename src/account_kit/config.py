@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional, Tuple, Union
+from typing import Any, Awaitable, Callable, Dict, Optional, Tuple, Union
+from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -29,6 +30,13 @@ BeforeTwoFactor = Callable[[object, object], Awaitable[None]]
 CaptchaVerifier = Callable[[str, str], Union[bool, Awaitable[bool]]]
 # request -> client IP (e.g. honour X-Forwarded-For behind a trusted proxy)
 ClientIp = Callable[[object], str]
+# user_id, raw bytes, content_type, filename -> storage key written to User.avatar_path
+AvatarSave = Callable[[UUID, bytes, Optional[str], Optional[str]], Awaitable[str]]
+# previous storage key
+AvatarDelete = Callable[[Optional[str]], Awaitable[None]]
+# storage key -> (file_like_or_path_or_bytes, media_type)
+AvatarOpen = Callable[[str], Awaitable[Tuple[Any, str]]]
+EmailTemplateMap = Dict[str, str]
 
 
 @dataclass
@@ -72,6 +80,18 @@ class AccountKitConfig:
     reserved_usernames: Tuple[str, ...] = ()
     api_prefix: str = "/api/auth"
     admin_prefix: str = "/api/admin/account"
+    # Host directory of Jinja templates; same filenames as the package defaults
+    # are tried first, then account-kit's bundled templates.
+    email_template_dir: Optional[str] = None
+    # purpose -> template filename (relative, no ``..``). ``{lang}`` is expanded.
+    email_template_map: Optional[EmailTemplateMap] = None
+    # POST /change-password: default matches dedd (old/new password, no email code).
+    # PATCH /me still requires an email code when changing the password.
+    change_password_require_email_code: bool = False
+    avatar_enabled: bool = False
+    avatar_save: Optional[AvatarSave] = None
+    avatar_delete: Optional[AvatarDelete] = None
+    avatar_open: Optional[AvatarOpen] = None
     mailer: Optional[Mailer] = None
     before_login: Optional[BeforeLogin] = None
     before_register: Optional[BeforeRegister] = None

@@ -281,6 +281,29 @@ async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str,
     await db.commit()
 
 
+async def change_password(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    old_password: str,
+    new_password: str,
+    *,
+    code: Optional[str] = None,
+) -> None:
+    if not verify_password(old_password, user.hashed_password):
+        raise HTTPException(status_code=400, detail="旧密码错误")
+    assert_password(config, new_password)
+    if config.change_password_require_email_code:
+        await consume_code(db, config.code_secret(), user.email, "change_password", code)
+    user.hashed_password = hash_password(new_password)
+    if config.session_mode == "single_device":
+        _clear_session(user)
+    await _revoke_second_factor_memory(db, user.id)
+    if config.on_password_changed is not None:
+        await config.on_password_changed(db, user)
+    await db.commit()
+
+
 async def update_profile(
     db: AsyncSession,
     config: AccountKitConfig,

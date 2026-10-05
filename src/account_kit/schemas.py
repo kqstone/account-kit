@@ -57,6 +57,12 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    old_password: str
+    new_password: str
+    code: Optional[str] = None
+
+
 class UserProfileUpdate(BaseModel):
     username: Optional[str] = Field(default=None, min_length=1, max_length=50)
     email: Optional[EmailStr] = None
