@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -90,26 +90,35 @@ async def verify_code(req: VerifyCodeRequest, db: AsyncSession = Depends(get_db)
 
 
 @router.post("/register", response_model=UserResponse)
-async def register(payload: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    user = await register_user(db, get_config(), payload)
+async def register(payload: RegisterRequest, request: Request, db: AsyncSession = Depends(get_db)):
+    config = get_config()
+    if config.before_register is not None:
+        await config.before_register(request)
+    user = await register_user(db, config, payload)
     return await to_response(db, user)
 
 
 @router.post("/login", response_model=TokenResponse)
 async def login(
+    request: Request,
     username: str = Form(),
     password: str = Form(),
     force: bool = Form(False),
     device_name: str = Form(""),
+    trusted_device_token: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
+    config = get_config()
+    if config.before_login is not None:
+        await config.before_login(request, username)
     _user, token = await login_user(
         db,
-        get_config(),
+        config,
         username=username,
         password=password,
         force=force,
         device_name=device_name,
+        trusted_device_token=trusted_device_token,
     )
     return TokenResponse(access_token=token)
 

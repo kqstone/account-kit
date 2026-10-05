@@ -190,7 +190,7 @@ async def register_user(db: AsyncSession, config: AccountKitConfig, payload: Reg
     tier = await default_tier(db)
     db.add(UserTierAssignment(user_id=user.id, tier_code=tier.code))
     if config.on_registered is not None:
-        await config.on_registered(db, user)
+        await config.on_registered(db, user, payload)
     await db.commit()
     await db.refresh(user)
     return user

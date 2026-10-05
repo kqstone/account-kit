@@ -4,7 +4,7 @@ import uuid
 from datetime import datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, EmailStr, Field, field_serializer, field_validator
 
 from account_kit.profile import format_birth_year_month, parse_birth_year_month
 
@@ -31,15 +31,19 @@ class VerifyCodeRequest(BaseModel):
 
 
 class RegisterRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
     username: str = Field(min_length=1, max_length=50)
     email: EmailStr
     password: str
     code: str = Field(min_length=6, max_length=6)
-    full_name: Optional[str] = None
+    full_name: Optional[str] = Field(default=None, validation_alias=AliasChoices("full_name", "real_name"))
     institution: Optional[str] = None
     gender: Optional[UserGender] = None
     birth_year_month: Optional[str] = None
     role: Optional[str] = None
+    # Host-only. account-kit does not store consent; dedd reads it in on_registered.
+    doctor_consent_version: Optional[str] = None
 
     @field_validator("birth_year_month", mode="before")
     @classmethod

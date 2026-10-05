@@ -18,7 +18,11 @@ class SmtpConfig:
 
 # to, purpose, code, language
 Mailer = Callable[[str, str, str, str], Awaitable[None]]
-UserHook = Callable[[AsyncSession, object], Awaitable[None]]
+UserHook = Callable[..., Awaitable[None]]
+# request, username
+BeforeLogin = Callable[[object, str], Awaitable[None]]
+# request
+BeforeRegister = Callable[[object], Awaitable[None]]
 
 
 @dataclass
@@ -49,6 +53,8 @@ class AccountKitConfig:
     api_prefix: str = "/api/auth"
     admin_prefix: str = "/api/admin/account"
     mailer: Optional[Mailer] = None
+    before_login: Optional[BeforeLogin] = None
+    before_register: Optional[BeforeRegister] = None
     on_registered: Optional[UserHook] = None
     on_login: Optional[UserHook] = None
     on_password_changed: Optional[UserHook] = None
