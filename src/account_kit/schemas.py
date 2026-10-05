@@ -100,6 +100,12 @@ class UserResponse(BaseModel):
 
     model_config = {"from_attributes": True}
 
+    @field_validator("birth_year_month", mode="before")
+    @classmethod
+    def _birth(cls, value):
+        # SQLAlchemy stores Date; model_validate(user) needs str before type check.
+        return _birth(value)
+
     @field_serializer("birth_year_month")
     def _serialize_birth(self, value):
         return format_birth_year_month(value) if value is not None and not isinstance(value, str) else value
