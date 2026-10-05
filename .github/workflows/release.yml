@@ -7,8 +7,27 @@ on:
 
 permissions:
   contents: write
+  packages: write
 
 jobs:
+  npm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: https://npm.pkg.github.com
+          scope: "@kqstone"
+      - run: npm publish
+        working-directory: packages/account-ui-vue
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - run: npm publish
+        working-directory: packages/account-ui-react
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   python:
     runs-on: ubuntu-latest
     steps:
