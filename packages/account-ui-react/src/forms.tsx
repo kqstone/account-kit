@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from "react"
+import { useEffect, useState, type FormEvent } from "react"
 import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
 
 function messageOf(error: unknown) {
