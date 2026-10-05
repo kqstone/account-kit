@@ -1,17 +1,20 @@
 from __future__ import annotations
 
+import uuid
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_kit import avatar as avatar_mod
 from account_kit import captcha
 from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_db, user_from_access_token
 from account_kit.emailer import send_code_email
 from account_kit.otp import OTP_PURPOSES, assert_resend_allowed, create_code, find_valid_code, normalize_email
 from account_kit.schemas import (
+    ChangePasswordRequest,
     ProfileResponse,
     RegisterRequest,
     ResetPasswordRequest,
@@ -24,8 +27,10 @@ from account_kit.schemas import (
 )
 from account_kit.security import create_access_token
 from account_kit.service import (
+    change_password,
     email_allowed,
     get_user_by_email,
+    get_user_by_id,
     login_user,
     register_user,
     reset_password,
@@ -147,6 +152,23 @@ async def reset(payload: ResetPasswordRequest, db: AsyncSession = Depends(get_db
     return StatusResponse(status="success", detail="密码重置成功")
 
 
+@router.post("/change-password", response_model=StatusResponse)
+async def change_password_endpoint(
+    payload: ChangePasswordRequest,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await change_password(
+        db,
+        get_config(),
+        current_user,
+        payload.old_password,
+        payload.new_password,
+        code=payload.code,
+    )
+    return StatusResponse(status="success", detail="密码修改成功")
+
+
 @router.get("/me", response_model=UserResponse)
 async def me(current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     return await to_response(db, current_user)
@@ -173,6 +195,48 @@ async def patch_me(
         body.access_token = token
         body.token_type = "bearer"
     return body
+
+
+@router.post("/me/avatar", response_model=UserResponse)
+async def upload_my_avatar(
+    file: UploadFile = File(...),
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    config = get_config()
+    content = await file.read()
+    old = current_user.avatar_path
+    path = await avatar_mod.save_avatar(config, current_user.id, content, file.content_type, file.filename)
+    current_user.avatar_path = path
+    await db.commit()
+    await db.refresh(current_user)
+    if old and old != path:
+        await avatar_mod.delete_avatar(config, old)
+    return await to_response(db, current_user)
+
+
+@router.delete("/me/avatar", response_model=UserResponse)
+async def delete_my_avatar(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    config = get_config()
+    await avatar_mod.delete_avatar(config, current_user.avatar_path)
+    current_user.avatar_path = None
+    await db.commit()
+    await db.refresh(current_user)
+    return await to_response(db, current_user)
+
+
+@router.get("/users/{user_id}/avatar")
+async def get_user_avatar(
+    user_id: uuid.UUID,
+    _current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    user = await get_user_by_id(db, user_id)
+    path = user.avatar_path if user is not None else None
+    return await avatar_mod.serve_avatar(get_config(), path)
 
 
 def mount_account(app, get_db, config) -> None:

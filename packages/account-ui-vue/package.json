@@ -1,13 +1,15 @@
 {
   "name": "@kqstone/account-ui-vue",
-  "version": "0.1.2",
-  "description": "Vue 3 login, register, reset-password forms and tier badge for account-kit",
+  "version": "0.2.0",
+  "description": "Vue 3 login, register, 2FA, profile and avatar components for account-kit",
   "keywords": [
     "account-kit",
     "vue",
     "vue3",
     "login",
     "register",
+    "2fa",
+    "avatar",
     "auth",
     "fastapi"
   ],
@@ -41,7 +43,11 @@
     "directory": "packages/account-ui-vue"
   },
   "peerDependencies": {
+    "qrcode": "^1.5.0",
     "vue": "^3.2.0"
+  },
+  "peerDependenciesMeta": {
+    "qrcode": { "optional": true }
   },
   "devDependencies": {
     "tsup": "^8.5.1",

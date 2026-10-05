@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from datetime import datetime
 from typing import Optional
 
 from pydantic import BaseModel, Field
@@ -52,6 +53,15 @@ class AdminUserPatch(BaseModel):
 
 class RoleChangeCreate(BaseModel):
     requested_role: str = Field(min_length=1, max_length=50)
+
+
+class RoleChangeOut(BaseModel):
+    id: uuid.UUID
+    user_id: Optional[uuid.UUID] = None
+    from_role: str
+    to_role: str
+    status: str
+    created_at: Optional[datetime] = None
 
 
 class RoleChangeReview(BaseModel):

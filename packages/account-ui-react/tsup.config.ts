@@ -8,4 +8,5 @@ export default defineConfig({
   dts: true,
   clean: true,
   treeshake: true,
+  external: ["react", "react/jsx-runtime", "qrcode"],
 })

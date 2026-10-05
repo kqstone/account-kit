@@ -1,10 +1,20 @@
 import uuid
+from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from account_kit.admin_schemas import AdminUserPatch, RoleBody, RoleChangeCreate, RoleChangeReview, RolePatch, TierBody, TierPatch
+from account_kit.admin_schemas import (
+    AdminUserPatch,
+    RoleBody,
+    RoleChangeCreate,
+    RoleChangeOut,
+    RoleChangeReview,
+    RolePatch,
+    TierBody,
+    TierPatch,
+)
 from account_kit.catalog import apply_admin_user_patch, create_role, create_tier, delete_role, delete_tier, patch_role, patch_tier
 from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_db, require_admin
@@ -49,7 +59,18 @@ async def public_tiers(db: AsyncSession = Depends(get_db)):
     return [_tier_dict(row) for row in result.scalars().all()]
 
 
-@public_extra.post("/role-change-requests")
+def _role_change_out(row: RoleChangeRequest) -> RoleChangeOut:
+    return RoleChangeOut(
+        id=row.id,
+        user_id=row.user_id,
+        from_role=row.from_role,
+        to_role=row.to_role,
+        status=row.status,
+        created_at=row.created_at,
+    )
+
+
+@public_extra.post("/role-change-requests", response_model=RoleChangeOut)
 async def request_role_change(
     body: RoleChangeCreate,
     current_user=Depends(get_current_user),
@@ -75,7 +96,26 @@ async def request_role_change(
     db.add(row)
     await db.commit()
     await db.refresh(row)
-    return {"id": row.id, "from_role": row.from_role, "to_role": row.to_role, "status": row.status}
+    return _role_change_out(row)
+
+
+@public_extra.get("/role-change-requests/me", response_model=Optional[RoleChangeOut])
+async def my_role_change_request(
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    if not get_config().role_change_enabled:
+        raise HTTPException(status_code=404, detail="Not found")
+    result = await db.execute(
+        select(RoleChangeRequest)
+        .where(RoleChangeRequest.user_id == current_user.id, RoleChangeRequest.status == "pending")
+        .order_by(RoleChangeRequest.created_at.desc())
+        .limit(1)
+    )
+    row = result.scalars().first()
+    if not row:
+        return None
+    return _role_change_out(row)
 
 
 @admin_router.get("/roles")
