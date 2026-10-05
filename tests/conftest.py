@@ -1,0 +1,49 @@
+import os
+
+import pytest
+from fastapi import FastAPI
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+from account_kit import init_db, mount_account
+from account_kit.config import AccountKitConfig
+
+
+def _database_url() -> str:
+    url = os.environ.get("ACCOUNT_KIT_TEST_DATABASE_URL", "").strip()
+    if not url:
+        pytest.skip("ACCOUNT_KIT_TEST_DATABASE_URL is not set")
+    return url
+
+
+@pytest.fixture
+async def api():
+    engine = create_async_engine(_database_url())
+    async with engine.begin() as conn:
+        await conn.execute(text("DROP SCHEMA IF EXISTS auth CASCADE"))
+    await init_db(engine)
+    sessions = async_sessionmaker(engine, expire_on_commit=False)
+    sent = []
+
+    async def mailer(to, purpose, code, language):
+        sent.append({"to": to, "purpose": purpose, "code": code, "language": language})
+
+    async def get_db():
+        async with sessions() as session:
+            yield session
+
+    config = AccountKitConfig(
+        jwt_secret="test-secret",
+        mailer=mailer,
+        brand_name="Test",
+        session_mode="single_device",
+        require_approval=True,
+        role_change_enabled=True,
+    )
+    app = FastAPI()
+    mount_account(app, get_db, config)
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        yield {"client": client, "sent": sent, "sessions": sessions}
+    await engine.dispose()

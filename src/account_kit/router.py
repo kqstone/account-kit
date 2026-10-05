@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Optional
+
 from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -39,7 +41,7 @@ async def send_code(
     req: SendCodeRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    token: str | None = Depends(_bearer),
+    token: Optional[str] = Depends(_bearer),
 ):
     config = get_config()
     if req.purpose not in OTP_PURPOSES:

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Optional
 
 from fastapi import Depends, HTTPException, Query, Request, status
 from fastapi.security import OAuth2PasswordBearer
@@ -23,7 +24,7 @@ async def get_db(request: Request):
         await agen.aclose()
 
 
-async def user_from_access_token(db: AsyncSession, raw: str | None):
+async def user_from_access_token(db: AsyncSession, raw: Optional[str]):
     credentials = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -60,8 +61,8 @@ async def user_from_access_token(db: AsyncSession, raw: str | None):
 
 
 async def get_current_user(
-    token: str | None = Depends(oauth2_scheme),
-    query_token: str | None = Query(None, alias="token"),
+    token: Optional[str] = Depends(oauth2_scheme),
+    query_token: Optional[str] = Query(None, alias="token"),
     db: AsyncSession = Depends(get_db),
 ):
     return await user_from_access_token(db, token or query_token)
