@@ -14,6 +14,8 @@ export type AccountUser = {
   pending_role?: string | null
 }
 
+export type CaptchaChallenge = { captcha_id: string; image_base64: string; expires_in?: number }
+
 export type CodePurpose = "register" | "reset_password" | "change_password"
 
 export class AccountApiError extends Error {
@@ -73,12 +75,22 @@ export function createAccountClient(baseUrl: string) {
     login(
       username: string,
       password: string,
-      extra?: { force?: boolean; deviceName?: string; trustedDeviceToken?: string },
+      extra?: {
+        force?: boolean
+        deviceName?: string
+        trustedDeviceToken?: string
+        captchaId?: string
+        captchaCode?: string
+      },
     ) {
       const form = new URLSearchParams({ username, password })
       if (extra?.force) form.set("force", "true")
       if (extra?.deviceName) form.set("device_name", extra.deviceName)
       if (extra?.trustedDeviceToken) form.set("trusted_device_token", extra.trustedDeviceToken)
+      if (extra?.captchaId && extra?.captchaCode) {
+        form.set("captcha_id", extra.captchaId)
+        form.set("captcha_code", extra.captchaCode)
+      }
       return request("/login", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -91,6 +103,10 @@ export function createAccountClient(baseUrl: string) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ email, code, new_password: newPassword }),
       })
+    },
+    /** Image captcha served by the host app (GET {prefix}/captcha), required after repeated login failures. */
+    captcha() {
+      return request("/captcha") as Promise<CaptchaChallenge>
     },
     me(token: string) {
       return request("/me", {}, token) as Promise<AccountUser>

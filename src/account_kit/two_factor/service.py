@@ -12,11 +12,30 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import AccountKitConfig
-from account_kit.models import TwoFactorRecoveryCode, TrustedDevice, User, UserTwoFactor
-from account_kit.two_factor.challenges import challenge_store
+from account_kit.models import TwoFactorRecoveryCode, TrustedDevice, User, UserTwoFactor, VerificationCode
+from account_kit.two_factor.challenges import TTL_SECONDS, challenge_store
 from account_kit.two_factor.totp import decrypt_secret, encrypt_secret, generate_secret, match_step, provisioning_uri
 
 RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
+PURPOSE_LOGIN_2FA = "login_2fa"
+PURPOSE_DISABLE_2FA = "disable_2fa"
+EMAIL_CODE_COOLDOWN = timedelta(seconds=60)
+
+
+def _err(status_code: int, code: str, message: str, **extra) -> HTTPException:
+    return HTTPException(status_code=status_code, detail={"code": code, "message": message, **extra})
+
+
+def email_factor_available(config: AccountKitConfig, user: User) -> bool:
+    return bool(config.two_factor_email_enabled and user.email)
+
+
+def mask_email(email: str) -> str:
+    if not email or "@" not in email:
+        return ""
+    name, domain = email.split("@", 1)
+    shown = name[:2] if len(name) > 2 else name[:1]
+    return f"{shown}***@{domain}"
 
 
 def _hash_recovery(secret: str, user_id, code: str) -> str:
@@ -84,10 +103,21 @@ async def enable(db: AsyncSession, config: AccountKitConfig, user: User, code: s
     return codes
 
 
-async def verify_second_factor(db: AsyncSession, config: AccountKitConfig, user: User, *, code: str = "", recovery_code: str = "") -> str:
+async def verify_second_factor(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    *,
+    code: str = "",
+    recovery_code: str = "",
+    email_code: str = "",
+    email_purpose: str = "",
+) -> str:
     row = await get_row(db, user.id)
     if row is None or not row.enabled:
         raise HTTPException(status_code=400, detail="未开启两步验证")
+    if email_code and email_purpose and not code and not recovery_code:
+        return await consume_email_factor(db, config, user, email_purpose, email_code)
     if code:
         secret = decrypt_secret(row.secret, config.encryption_material())
         step = match_step(secret, code, row.last_step)
@@ -111,15 +141,81 @@ async def verify_second_factor(db: AsyncSession, config: AccountKitConfig, user:
         found.used_at = datetime.now(timezone.utc)
         await db.commit()
         return "recovery"
-    raise HTTPException(status_code=400, detail="缺少验证码")
+    raise _err(400, "MFA_CODE_REQUIRED", "请输入验证码")
 
 
-async def disable(db: AsyncSession, config: AccountKitConfig, user: User, password: str, code: str = "", recovery_code: str = "") -> None:
+async def consume_email_factor(db: AsyncSession, config: AccountKitConfig, user: User, purpose: str, email_code: str) -> str:
+    """Single-use check of an emailed 2FA code; marks it used on success."""
+    from account_kit.otp import find_valid_code
+
+    if not config.two_factor_email_enabled:
+        raise _err(400, "EMAIL_UNAVAILABLE", "邮箱验证不可用")
+    value = (email_code or "").strip()
+    found = await find_valid_code(db, config.code_secret(), user.email, purpose, value) if user.email and value else None
+    if found is None:
+        raise _err(400, "EMAIL_CODE_INVALID", "邮箱验证码错误或已失效")
+    found.used = True
+    await db.commit()
+    return "email"
+
+
+async def send_email_code(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    purpose: str,
+    language: str = "zh",
+    background_tasks=None,
+) -> dict:
+    """Issue a 6-digit code (hashed at rest, 5 min TTL, 60 s cooldown) and email it."""
+    from account_kit.emailer import send_code_email
+    from account_kit.otp import OTP_TTL, create_code, generate_otp, normalize_email
+
+    if not user.email:
+        raise _err(400, "EMAIL_UNAVAILABLE", "账号未绑定邮箱")
+    email = normalize_email(user.email)
+    result = await db.execute(
+        select(VerificationCode)
+        .where(VerificationCode.email == email, VerificationCode.purpose == purpose)
+        .order_by(VerificationCode.created_at.desc())
+        .limit(1)
+    )
+    last = result.scalars().first()
+    if last is not None and last.created_at is not None:
+        created = last.created_at if last.created_at.tzinfo else last.created_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - created < EMAIL_CODE_COOLDOWN:
+            raise _err(429, "EMAIL_CODE_TOO_FREQUENT", "验证码发送频繁，请稍后再试")
+    code = generate_otp()
+    await create_code(db, config.code_secret(), email, purpose, code)
+    lang = language if language in ("zh", "en") else "zh"
+    if config.mailer is None and background_tasks is not None:
+        background_tasks.add_task(send_code_email, config, email, purpose, code, lang)
+    else:
+        await send_code_email(config, email, purpose, code, lang)
+    return {
+        "status": "success",
+        "email": mask_email(email),
+        "expires_in": int(OTP_TTL.total_seconds()),
+        "cooldown": int(EMAIL_CODE_COOLDOWN.total_seconds()),
+    }
+
+
+async def disable(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    password: str,
+    code: str = "",
+    recovery_code: str = "",
+    email_code: str = "",
+) -> None:
     from account_kit.security import verify_password
 
     if not verify_password(password, user.hashed_password):
         raise HTTPException(status_code=400, detail="当前密码错误")
-    await verify_second_factor(db, config, user, code=code, recovery_code=recovery_code)
+    await verify_second_factor(
+        db, config, user, code=code, recovery_code=recovery_code, email_code=email_code, email_purpose=PURPOSE_DISABLE_2FA
+    )
     row = await get_row(db, user.id)
     if row:
         row.enabled = False
@@ -231,7 +327,7 @@ async def status_payload(db: AsyncSession, config: AccountKitConfig, user: User)
         "enabled_at": row.enabled_at.isoformat() if enabled and row.enabled_at else None,
         "recovery_codes_remaining": await recovery_codes_remaining(db, user.id) if enabled else 0,
         "trusted_devices": len(devices),
-        "email_available": False,
+        "email_available": email_factor_available(config, user),
         "trusted_device_days": int(config.trusted_device_days),
     }
 
@@ -292,17 +388,19 @@ async def revoke_trusted(db: AsyncSession, user_id) -> None:
         row.revoked_at = now
 
 
-def mfa_required(user: User, device_name: str = "") -> HTTPException:
+def mfa_required(user: User, device_name: str = "", config: Optional[AccountKitConfig] = None) -> HTTPException:
+    """401 (non-200 on purpose: old clients show ``message`` instead of treating
+    the response as a successful login)."""
     token = challenge_store.create(user.id, user.hashed_password, device_name=device_name)
-    return HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={
-            "code": "MFA_REQUIRED",
-            "message": "该账号已开启两步验证，请升级客户端",
-            "challenge_token": token,
-            "methods": ["totp", "recovery"],
-            "expires_in": 300,
-        },
-    )
-
-
+    email_ok = bool(config is not None and email_factor_available(config, user))
+    detail = {
+        "code": "MFA_REQUIRED",
+        "message": "该账号已开启两步验证，请升级客户端",
+        "challenge_token": token,
+        "methods": ["totp", "recovery"] + (["email"] if email_ok else []),
+        "email_available": email_ok,
+        "expires_in": TTL_SECONDS,
+    }
+    if config is not None:
+        detail["trusted_device_days"] = int(config.trusted_device_days)
+    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)

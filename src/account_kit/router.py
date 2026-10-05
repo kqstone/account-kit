@@ -6,6 +6,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Re
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_kit import captcha
 from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_db, user_from_access_token
 from account_kit.emailer import send_code_email
@@ -106,20 +107,37 @@ async def login(
     force: bool = Form(False),
     device_name: str = Form(""),
     trusted_device_token: str = Form(""),
+    captcha_id: str = Form(""),
+    captcha_code: str = Form(""),
     db: AsyncSession = Depends(get_db),
 ):
     config = get_config()
     if config.before_login is not None:
         await config.before_login(request, username)
-    _user, token = await login_user(
-        db,
-        config,
-        username=username,
-        password=password,
-        force=force,
-        device_name=device_name,
-        trusted_device_token=trusted_device_token,
-    )
+    use_captcha = captcha.captcha_enabled(config)
+    ip = captcha.client_ip(config, request) if use_captcha else ""
+    name = (username or "").strip()
+    if use_captcha:
+        await captcha.enforce_login_captcha(config, ip, name, captcha_id, captcha_code)
+    try:
+        _user, token = await login_user(
+            db,
+            config,
+            username=username,
+            password=password,
+            force=force,
+            device_name=device_name,
+            trusted_device_token=trusted_device_token,
+        )
+    except HTTPException as exc:
+        if use_captcha:
+            if exc.status_code == 401 and exc.detail == captcha.INVALID_CREDENTIALS_MESSAGE:
+                raise captcha.invalid_credentials(config, ip, name, exc.headers) from exc
+            # Password was right (2FA, 409, disabled, pending approval...).
+            captcha.clear_failures(ip, name)
+        raise
+    if use_captcha:
+        captcha.clear_failures(ip, name)
     return TokenResponse(access_token=token)
 
 

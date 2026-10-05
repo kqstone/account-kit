@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Awaitable, Callable, Optional, Tuple
+from typing import Awaitable, Callable, Optional, Tuple, Union
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -23,6 +23,12 @@ UserHook = Callable[..., Awaitable[None]]
 BeforeLogin = Callable[[object, str], Awaitable[None]]
 # request
 BeforeRegister = Callable[[object], Awaitable[None]]
+# request, user: runs before each 2FA verification / email code send (e.g. rate limits)
+BeforeTwoFactor = Callable[[object, object], Awaitable[None]]
+# captcha_id, captcha_code -> valid (sync or async); should consume the captcha
+CaptchaVerifier = Callable[[str, str], Union[bool, Awaitable[bool]]]
+# request -> client IP (e.g. honour X-Forwarded-For behind a trusted proxy)
+ClientIp = Callable[[object], str]
 
 
 @dataclass
@@ -48,6 +54,16 @@ class AccountKitConfig:
     two_factor_enabled: bool = True
     role_change_enabled: bool = False
     trusted_device_days: int = 30
+    # Email code as an alternative second factor: login fallback
+    # (POST /login/2fa/email/send + ``email_code``) and disabling 2FA in settings
+    # (POST /2fa/disable/email-code + ``email_code``). Off by default.
+    two_factor_email_enabled: bool = False
+    # Image captcha on POST /login after repeated failures. Enabled when a verifier
+    # is set; the host serves the captcha itself (e.g. GET {api_prefix}/captcha).
+    captcha_verifier: Optional[CaptchaVerifier] = None
+    captcha_fail_threshold: int = 3
+    captcha_fail_window_seconds: int = 900
+    client_ip: Optional[ClientIp] = None
     forbid_admin_like_usernames: bool = False
     reserved_usernames: Tuple[str, ...] = ()
     api_prefix: str = "/api/auth"
@@ -55,6 +71,7 @@ class AccountKitConfig:
     mailer: Optional[Mailer] = None
     before_login: Optional[BeforeLogin] = None
     before_register: Optional[BeforeRegister] = None
+    before_two_factor: Optional[BeforeTwoFactor] = None
     on_registered: Optional[UserHook] = None
     on_login: Optional[UserHook] = None
     on_password_changed: Optional[UserHook] = None

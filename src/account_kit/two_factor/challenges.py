@@ -60,6 +60,12 @@ class ChallengeStore:
                 return None
             return item
 
+    def discard(self, raw: Optional[str]) -> None:
+        if not raw:
+            return
+        with self._lock:
+            self._items.pop(_h(raw.strip()), None)
+
     def discard_user(self, user_id: uuid.UUID) -> None:
         with self._lock:
             for key in [key for key, item in self._items.items() if item.user_id == user_id]:
