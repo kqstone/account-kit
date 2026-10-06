@@ -1,5 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react"
-import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
+import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser, type TokenPair } from "./client"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
 
 function messageOf(error: unknown) {
@@ -13,12 +13,15 @@ export function LoginForm({
   deviceName,
   trustedDeviceToken,
   onSuccess,
+  onTokens,
   onMfa,
 }: {
   client: AccountClient
   deviceName?: string
   trustedDeviceToken?: string | ((username: string) => string)
   onSuccess: (token: string) => void
+  /** Full login response (includes ``refresh_token`` when the server enables refresh tokens). */
+  onTokens?: (tokens: TokenPair) => void
   onMfa?: (challenge: MfaChallenge & { username: string; password: string; force: boolean }) => void
 }) {
   ensureAccountStyle()
@@ -67,6 +70,7 @@ export function LoginForm({
         captchaCode: usedCaptcha ? captchaCode.trim() : undefined,
       })
       setCaptchaNeeded(false)
+      onTokens?.(token)
       onSuccess(token.access_token)
     } catch (err) {
       const body = err instanceof AccountApiError ? err.body : null

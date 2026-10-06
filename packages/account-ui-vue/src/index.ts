@@ -1,18 +1,24 @@
-export { AccountApiError, createAccountClient, ensureAccountStyle } from "./client"
+export { AccountApiError, createAccountClient, createTokenStore, ensureAccountStyle } from "./client"
 export type {
   AccountClient,
+  AccountClientOptions,
   AccountUser,
   CaptchaChallenge,
   CodePurpose,
+  CodeSentResult,
+  DeleteAccountPayload,
   LoginSecondFactorResult,
   ProfileUpdateResult,
   RoleChangeRequest,
   SecondFactorPayload,
+  TokenPair,
+  TokenStore,
   TrustedDevice,
   TwoFactorSetup,
   TwoFactorStatus,
 } from "./client"
 export { LoginForm, RegisterForm, ResetPasswordForm } from "./forms"
+export { errorCodeOf } from "./utils"
 export { defaultProfileLabels, defaultTwoFactorLabels } from "./labels"
 export type { ProfileLabels, TwoFactorLabels } from "./labels"
 export {
@@ -31,6 +37,7 @@ export type { MfaChallenge, SecondFactor } from "./mfa"
 export { AvatarUploader, ProfileFields, UserAvatar } from "./profile"
 export type { GenderFallbacks } from "./profile"
 export type { RenderQr } from "./qr"
+export { CaptchaImage, ChangeEmailForm, DeleteAccountForm, LogoutButton, splitSecondFactor } from "./security"
 export { TierBadge } from "./TierBadge"
 export {
   clearTrustedDeviceToken,

@@ -77,7 +77,7 @@ export const LoginForm = defineComponent({
           captchaCode: usedCaptcha ? captchaCode.value.trim() : undefined,
         })
         captchaNeeded.value = false
-        emit("success", token.access_token, { username: username.value, password: password.value })
+        emit("success", token.access_token, { username: username.value, password: password.value, tokens: token })
       } catch (err) {
         const body = err instanceof AccountApiError ? err.body : null
         const detail =
