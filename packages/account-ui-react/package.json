@@ -1,6 +1,6 @@
 {
   "name": "@kqstone/account-ui-react",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "React login, register, 2FA, profile and avatar components for account-kit",
   "keywords": [
     "account-kit",

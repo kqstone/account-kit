@@ -14,7 +14,7 @@ async def init_db(engine: AsyncEngine) -> None:
 async def ensure_schema(engine: AsyncEngine) -> None:
     """Idempotent upgrade helper for hosts without Alembic: creates the schema and
     any missing kit tables (0.2.2 only adds tables, no column changes). Safe to
-    run on every start. Equivalent SQL: docs/migrations/0.2.2.sql."""
+    run on every start. Equivalent SQL: account_kit/sql/upgrade_0_2_2.sql."""
     await init_db(engine)
 
 
