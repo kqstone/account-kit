@@ -73,6 +73,8 @@ class UserProfileUpdate(BaseModel):
     current_password: Optional[str] = None
     new_password: Optional[str] = None
     code: Optional[str] = None
+    # Code sent to the new address by POST /me/email/send-code (0.2.2).
+    email_code: Optional[str] = None
 
     @field_validator("birth_year_month", mode="before")
     @classmethod
@@ -114,6 +116,41 @@ class UserResponse(BaseModel):
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
+    # Only present with ``refresh_token_enabled`` (routes exclude None fields).
+    refresh_token: Optional[str] = None
+    refresh_expires_in: Optional[int] = None
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str = Field(min_length=1, max_length=512)
+
+
+class LogoutRequest(BaseModel):
+    refresh_token: Optional[str] = Field(default=None, max_length=512)
+    all_devices: bool = False
+
+
+class ChangeEmailCodeRequest(BaseModel):
+    new_email: EmailStr
+    password: Optional[str] = None
+    language: str = "zh"
+
+
+class ChangeEmailRequest(BaseModel):
+    new_email: EmailStr
+    code: str = Field(min_length=1, max_length=16)
+    password: Optional[str] = None
+
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+    code: Optional[str] = ""
+    recovery_code: Optional[str] = ""
+    email_code: Optional[str] = ""
+
+
+class LanguageRequest(BaseModel):
+    language: Optional[str] = "zh"
 
 
 class ProfileResponse(BaseModel):

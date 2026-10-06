@@ -1,7 +1,7 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
-import { initialsOf, messageOf, textOf, type DeepPartial } from "./utils"
+import { errorCodeOf, initialsOf, interpolate, messageOf, textOf, type DeepPartial } from "./utils"
 
 export type GenderFallbacks = { male?: string; female?: string; unspecified?: string }
 
@@ -195,6 +195,12 @@ export const ProfileFields = defineComponent({
     language: { type: String, default: "zh" },
     labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
     showChangePassword: { type: Boolean, default: true },
+    /**
+     * Email code for password changes (server ``change_password_require_email_code``):
+     * ``true`` always shows the code field, ``"auto"`` (default) shows it once the server
+     * answers ``EMAIL_CODE_REQUIRED``, ``false`` never.
+     */
+    passwordEmailCode: { type: [Boolean, String] as PropType<boolean | "auto">, default: "auto" },
     className: { type: String, default: "" },
   },
   emits: ["saved", "password-changed"],
@@ -207,9 +213,43 @@ export const ProfileFields = defineComponent({
     const oldPassword = ref("")
     const newPassword = ref("")
     const confirmPassword = ref("")
+    const emailCode = ref("")
+    const codeNeeded = ref(false)
+    const sending = ref(false)
+    const cooldown = ref(0)
+    let cooldownTimer: ReturnType<typeof setInterval> | null = null
     const error = ref("")
     const info = ref("")
     const busy = ref(false)
+    onBeforeUnmount(() => {
+      if (cooldownTimer) clearInterval(cooldownTimer)
+    })
+    const showCode = () => props.passwordEmailCode === true || (props.passwordEmailCode === "auto" && codeNeeded.value)
+
+    async function sendPasswordCode() {
+      const labels = L()
+      const email = props.user?.email
+      if (!email) return
+      error.value = ""
+      sending.value = true
+      try {
+        await props.client.sendCode(email, "change_password", props.language, props.token)
+        info.value = interpolate(labels.codeSentTo, { email })
+        cooldown.value = 60
+        if (cooldownTimer) clearInterval(cooldownTimer)
+        cooldownTimer = setInterval(() => {
+          cooldown.value -= 1
+          if (cooldown.value <= 0 && cooldownTimer) {
+            clearInterval(cooldownTimer)
+            cooldownTimer = null
+          }
+        }, 1000)
+      } catch (e) {
+        error.value = messageOf(e, labels.error)
+      } finally {
+        sending.value = false
+      }
+    }
 
     watch(
       () => props.user,
@@ -241,10 +281,20 @@ export const ProfileFields = defineComponent({
         })
         emit("saved", patched)
         if (newPassword.value) {
-          await props.client.changePassword(props.token, oldPassword.value, newPassword.value)
+          try {
+            await props.client.changePassword(props.token, oldPassword.value, newPassword.value, emailCode.value.trim() || undefined)
+          } catch (e) {
+            if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && props.passwordEmailCode !== false) {
+              codeNeeded.value = true
+              error.value = labels.passwordEmailCodeHint
+              return
+            }
+            throw e
+          }
           oldPassword.value = ""
           newPassword.value = ""
           confirmPassword.value = ""
+          emailCode.value = ""
           emit("password-changed")
           info.value = labels.passwordChanged
         } else {
@@ -287,6 +337,19 @@ export const ProfileFields = defineComponent({
                 h("label", [labels.oldPassword, h("input", { type: "password", value: oldPassword.value, autocomplete: "current-password", onInput: (event: Event) => { oldPassword.value = textOf(event) } })]),
                 h("label", [labels.newPassword, h("input", { type: "password", value: newPassword.value, autocomplete: "new-password", onInput: (event: Event) => { newPassword.value = textOf(event) } })]),
                 h("label", [labels.confirmPassword, h("input", { type: "password", value: confirmPassword.value, autocomplete: "new-password", onInput: (event: Event) => { confirmPassword.value = textOf(event) } })]),
+                showCode()
+                  ? h("label", [
+                      labels.emailCode,
+                      h("span", { class: "ak-row" }, [
+                        h("input", { class: "ak-input", value: emailCode.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", placeholder: labels.emailCodePlaceholder, onInput: (event: Event) => { emailCode.value = textOf(event) } }),
+                        h(
+                          "button",
+                          { type: "button", disabled: sending.value || cooldown.value > 0 || !props.user?.email, onClick: () => void sendPasswordCode() },
+                          sending.value ? labels.sending : cooldown.value > 0 ? interpolate(labels.resendIn, { s: cooldown.value }) : labels.sendCode,
+                        ),
+                      ]),
+                    ])
+                  : null,
               ]
             : null,
           slots.default?.(),

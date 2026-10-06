@@ -19,6 +19,46 @@ export type AccountUser = {
 
 export type CaptchaChallenge = { captcha_id: string; image_base64: string; expires_in?: number }
 
+/** Login / refresh response. ``refresh_token`` only when the server enables refresh tokens. */
+export type TokenPair = {
+  access_token: string
+  token_type: string
+  refresh_token?: string
+  refresh_expires_in?: number
+}
+
+export type CodeSentResult = {
+  status: string
+  detail?: string
+  email?: string
+  expires_in?: number
+  cooldown?: number
+}
+
+export type DeleteAccountPayload = {
+  password: string
+  code?: string
+  recoveryCode?: string
+  emailCode?: string
+}
+
+export type AccountClientOptions = {
+  /** Token used by calls that accept an optional token (e.g. ``sendCode``). */
+  getToken?: () => string | null | undefined
+  /** Path of the kit logout route (``AccountKitConfig.logout_path``). Default ``/logout``. */
+  logoutPath?: string
+  /**
+   * Opt-in: on a 401 from an authenticated call, rotate the refresh token once
+   * (single flight), store the new pair via ``onTokens`` and retry with the new
+   * access token. Requires ``refresh_token_enabled`` on the server.
+   */
+  autoRefresh?: {
+    getRefreshToken: () => string | null | undefined
+    onTokens: (tokens: TokenPair) => void
+    onRefreshFailed?: (error: unknown) => void
+  }
+}
+
 export type CodePurpose = "register" | "reset_password" | "change_password"
 
 export type TwoFactorStatus = {
@@ -47,6 +87,8 @@ export type LoginSecondFactorResult = {
   trusted_device_token?: string
   trusted_device_expires_at?: string
   recovery_codes_remaining?: number
+  refresh_token?: string
+  refresh_expires_in?: number
 }
 
 export type RoleChangeRequest = {
@@ -81,6 +123,15 @@ export class AccountApiError extends Error {
     this.status = status
     this.body = body
   }
+
+  /** Machine-readable error code (``detail.code``), e.g. ``EMAIL_CODE_REQUIRED`` or ``RATE_LIMITED``. */
+  get code(): string | undefined {
+    const detail = (this.body as { detail?: unknown } | null)?.detail
+    if (detail && typeof detail === "object" && typeof (detail as { code?: unknown }).code === "string") {
+      return (detail as { code: string }).code
+    }
+    return undefined
+  }
 }
 
 export type AccountClient = ReturnType<typeof createAccountClient>
@@ -106,10 +157,14 @@ function parseBody(text: string) {
   }
 }
 
-export function createAccountClient(baseUrl: string) {
-  const prefix = baseUrl.replace(/\/$/, "")
+const NO_REFRESH_PATHS = ["/login", "/login/2fa", "/refresh"]
 
-  async function request(path: string, init: RequestInit = {}, token?: string | null) {
+export function createAccountClient(baseUrl: string, options: AccountClientOptions = {}) {
+  const prefix = baseUrl.replace(/\/$/, "")
+  const logoutPath = "/" + (options.logoutPath || "/logout").replace(/^\/+/, "")
+  let refreshing: Promise<TokenPair> | null = null
+
+  async function send(path: string, init: RequestInit, token?: string | null) {
     const headers = new Headers(init.headers)
     if (token) headers.set("Authorization", `Bearer ${token}`)
     if (init.body instanceof FormData) headers.delete("Content-Type")
@@ -119,17 +174,64 @@ export function createAccountClient(baseUrl: string) {
     return body
   }
 
-  function json(path: string, payload: unknown, token?: string | null, method = "POST") {
+  function refreshOnce(): Promise<TokenPair> {
+    const auto = options.autoRefresh
+    if (!auto) return Promise.reject(new Error("autoRefresh is not configured"))
+    if (!refreshing) {
+      const raw = auto.getRefreshToken()
+      refreshing = (
+        raw
+          ? (json("/refresh", { refresh_token: raw }, null, "POST", false) as Promise<TokenPair>)
+          : Promise.reject(new AccountApiError("No refresh token", 401, null))
+      )
+        .then((tokens) => {
+          auto.onTokens(tokens)
+          return tokens
+        })
+        .catch((error) => {
+          auto.onRefreshFailed?.(error)
+          throw error
+        })
+        .finally(() => {
+          refreshing = null
+        })
+    }
+    return refreshing
+  }
+
+  async function request(path: string, init: RequestInit = {}, token?: string | null, allowRefresh = true) {
+    try {
+      return await send(path, init, token)
+    } catch (error) {
+      const canRefresh =
+        allowRefresh &&
+        !!token &&
+        !!options.autoRefresh &&
+        error instanceof AccountApiError &&
+        error.status === 401 &&
+        !NO_REFRESH_PATHS.includes(path) &&
+        path !== logoutPath
+      if (!canRefresh) throw error
+      const tokens = await refreshOnce().catch(() => {
+        throw error
+      })
+      return await send(path, init, tokens.access_token)
+    }
+  }
+
+  function json(path: string, payload: unknown, token?: string | null, method = "POST", allowRefresh = true) {
     return request(
       path,
       { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
       token,
+      allowRefresh,
     )
   }
 
   return {
-    sendCode(email: string, purpose: CodePurpose, language = "zh") {
-      return json("/send-code", { email, purpose, language })
+    /** ``token`` (or ``options.getToken()``) is sent when available; ``change_password`` requires it. */
+    sendCode(email: string, purpose: CodePurpose, language = "zh", token?: string | null) {
+      return json("/send-code", { email, purpose, language }, token ?? options.getToken?.() ?? null)
     },
     register(payload: Record<string, unknown>) {
       return json("/register", payload) as Promise<AccountUser>
@@ -157,12 +259,24 @@ export function createAccountClient(baseUrl: string) {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
         body: form,
-      }) as Promise<{ access_token: string; token_type: string }>
+      }) as Promise<TokenPair>
+    },
+    /** Rotate a refresh token (server ``refresh_token_enabled``). A reused token revokes the session. */
+    refresh(refreshToken: string) {
+      return json("/refresh", { refresh_token: refreshToken }, null, "POST", false) as Promise<TokenPair>
+    },
+    /** Kit logout: clears the current session, revokes its refresh tokens; ``allDevices`` signs out everywhere. */
+    logout(token?: string | null, extra?: { refreshToken?: string | null; allDevices?: boolean }) {
+      const payload: Record<string, unknown> = {}
+      const refreshToken = extra?.refreshToken ?? options.autoRefresh?.getRefreshToken() ?? null
+      if (refreshToken) payload.refresh_token = refreshToken
+      if (extra?.allDevices) payload.all_devices = true
+      return json(logoutPath, payload, token ?? options.getToken?.() ?? null, "POST", false) as Promise<{ status: string }>
     },
     resetPassword(email: string, code: string, newPassword: string) {
       return json("/reset-password", { email, code, new_password: newPassword })
     },
-    /** Image captcha served by the host app (GET {prefix}/captcha), required after repeated login failures. */
+    /** Image captcha (GET {prefix}/captcha): kit built-in (``captcha_builtin``) or served by the host. */
     captcha() {
       return request("/captcha") as Promise<CaptchaChallenge>
     },
@@ -267,6 +381,38 @@ export function createAccountClient(baseUrl: string) {
     patchMe(token: string, payload: Record<string, unknown>) {
       return json("/me", payload, token, "PATCH") as Promise<ProfileUpdateResult>
     },
+    /** Email a ``change_email`` code to the new address. */
+    sendChangeEmailCode(token: string, newEmail: string, extra?: { password?: string; language?: string }) {
+      return json(
+        "/me/email/send-code",
+        { new_email: newEmail, language: extra?.language || "zh", ...(extra?.password ? { password: extra.password } : {}) },
+        token,
+      ) as Promise<CodeSentResult>
+    },
+    /** Confirm an email change with the code sent to the new address (+ current password by default). */
+    changeEmail(token: string, newEmail: string, code: string, password?: string) {
+      return json(
+        "/me/email",
+        { new_email: newEmail, code, ...(password ? { password } : {}) },
+        token,
+      ) as Promise<AccountUser>
+    },
+    /** Self-service deletion (server ``self_delete_enabled``). 2FA accounts also pass a factor. */
+    deleteAccount(token: string, payload: DeleteAccountPayload) {
+      return json(
+        "/me/delete",
+        {
+          password: payload.password,
+          code: payload.code || "",
+          recovery_code: payload.recoveryCode || "",
+          email_code: payload.emailCode || "",
+        },
+        token,
+      ) as Promise<{ status: string; mode: string }>
+    },
+    sendDeleteAccountEmailCode(token: string, language = "zh") {
+      return json("/me/delete/email-code", { language }, token) as Promise<CodeSentResult>
+    },
     uploadAvatar(token: string, file: Blob, filename?: string) {
       const form = new FormData()
       form.append("file", file, filename || (file instanceof File ? file.name : "avatar.jpg"))
@@ -293,6 +439,55 @@ export function createAccountClient(baseUrl: string) {
     },
     myRoleChangeRequest(token: string) {
       return request("/role-change-requests/me", {}, token) as Promise<RoleChangeRequest | null>
+    },
+  }
+}
+
+export type TokenStore = {
+  get(): TokenPair | null
+  getAccessToken(): string | null
+  getRefreshToken(): string | null
+  set(tokens: TokenPair | null): void
+  clear(): void
+  subscribe(listener: (tokens: TokenPair | null) => void): () => void
+}
+
+/**
+ * Tiny token holder (localStorage when available, memory otherwise). Wire it into
+ * the client with
+ * ``createAccountClient(base, { getToken: store.getAccessToken,
+ *   autoRefresh: { getRefreshToken: store.getRefreshToken, onTokens: store.set, onRefreshFailed: store.clear } })``.
+ */
+export function createTokenStore(storageKey = "account-kit:tokens"): TokenStore {
+  let current: TokenPair | null = null
+  const listeners = new Set<(tokens: TokenPair | null) => void>()
+  const storage = typeof localStorage !== "undefined" ? localStorage : null
+  try {
+    const raw = storage?.getItem(storageKey)
+    current = raw ? (JSON.parse(raw) as TokenPair) : null
+  } catch {
+    current = null
+  }
+  function set(tokens: TokenPair | null) {
+    // A rotation response always carries a new refresh token; keep the old one otherwise.
+    current = tokens ? { ...tokens, refresh_token: tokens.refresh_token || current?.refresh_token } : null
+    try {
+      if (current) storage?.setItem(storageKey, JSON.stringify(current))
+      else storage?.removeItem(storageKey)
+    } catch {
+      /* storage full or blocked */
+    }
+    listeners.forEach((listener) => listener(current))
+  }
+  return {
+    get: () => current,
+    getAccessToken: () => current?.access_token || null,
+    getRefreshToken: () => current?.refresh_token || null,
+    set,
+    clear: () => set(null),
+    subscribe(listener) {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
     },
   }
 }
@@ -352,6 +547,8 @@ export function ensureAccountStyle() {
 .ak-steps{margin:0 0 8px;padding-left:20px;color:#667085;font-size:14px;line-height:1.7}
 .ak-devices{margin-top:16px;padding-top:16px;border-top:1px solid #e4e7ec}
 .ak-input{width:100%}
+.ak-captcha-img{height:36px;cursor:pointer;border-radius:6px;vertical-align:middle}
+.ak-danger-zone{border:1px solid #fda29b;border-radius:10px;padding:16px}
 `
   document.head.appendChild(style)
 }

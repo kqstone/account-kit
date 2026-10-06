@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react"
 import { ensureAccountStyle, type AccountClient, type AccountUser, type ProfileUpdateResult } from "./client"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
-import { initialsOf, messageOf, type DeepPartial } from "./utils"
+import { useCountdown } from "./security"
+import { errorCodeOf, initialsOf, interpolate, messageOf, type DeepPartial } from "./utils"
 
 export type GenderFallbacks = { male?: string; female?: string; unspecified?: string }
 
@@ -203,6 +204,7 @@ export function ProfileFields({
   language = "zh",
   labels,
   showChangePassword = true,
+  passwordEmailCode = "auto",
   className = "",
   extra,
   onSaved,
@@ -214,6 +216,12 @@ export function ProfileFields({
   language?: string
   labels?: DeepPartial<ProfileLabels> | null
   showChangePassword?: boolean
+  /**
+   * Email code for password changes (server ``change_password_require_email_code``):
+   * ``true`` always shows the code field, ``"auto"`` (default) shows it once the server
+   * answers ``EMAIL_CODE_REQUIRED``, ``false`` never.
+   */
+  passwordEmailCode?: boolean | "auto"
   className?: string
   extra?: ReactNode
   onSaved?: (result: ProfileUpdateResult) => void
@@ -228,9 +236,30 @@ export function ProfileFields({
   const [oldPassword, setOldPassword] = useState("")
   const [newPassword, setNewPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  const [emailCode, setEmailCode] = useState("")
+  const [codeNeeded, setCodeNeeded] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [cooldown, startCooldown] = useCountdown()
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [busy, setBusy] = useState(false)
+  const showCode = passwordEmailCode === true || (passwordEmailCode === "auto" && codeNeeded)
+
+  async function sendPasswordCode() {
+    const email = user?.email
+    if (!email) return
+    setError("")
+    setSending(true)
+    try {
+      await client.sendCode(email, "change_password", language, token)
+      setInfo(interpolate(L.codeSentTo, { email }))
+      startCooldown(60)
+    } catch (e) {
+      setError(messageOf(e, L.error))
+    } finally {
+      setSending(false)
+    }
+  }
 
   useEffect(() => {
     setFullName(user?.full_name || "")
@@ -257,10 +286,20 @@ export function ProfileFields({
       })
       onSaved?.(patched)
       if (newPassword) {
-        await client.changePassword(token, oldPassword, newPassword)
+        try {
+          await client.changePassword(token, oldPassword, newPassword, emailCode.trim() || undefined)
+        } catch (e) {
+          if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && passwordEmailCode !== false) {
+            setCodeNeeded(true)
+            setError(L.passwordEmailCodeHint)
+            return
+          }
+          throw e
+        }
         setOldPassword("")
         setNewPassword("")
         setConfirmPassword("")
+        setEmailCode("")
         onPasswordChanged?.()
         setInfo(L.passwordChanged)
       } else {
@@ -310,6 +349,25 @@ export function ProfileFields({
             {L.confirmPassword}
             <input type="password" value={confirmPassword} autoComplete="new-password" onChange={(event) => setConfirmPassword(event.target.value)} />
           </label>
+          {showCode ? (
+            <label>
+              {L.emailCode}
+              <span className="ak-row">
+                <input
+                  className="ak-input"
+                  value={emailCode}
+                  maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder={L.emailCodePlaceholder}
+                  onChange={(event) => setEmailCode(event.target.value)}
+                />
+                <button type="button" disabled={sending || cooldown > 0 || !user?.email} onClick={() => void sendPasswordCode()}>
+                  {sending ? L.sending : cooldown > 0 ? interpolate(L.resendIn, { s: cooldown }) : L.sendCode}
+                </button>
+              </span>
+            </label>
+          ) : null}
         </>
       ) : null}
       {extra}

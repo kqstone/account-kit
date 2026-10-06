@@ -165,3 +165,76 @@ class AuthAuditLog(Base):
     device_name = Column(String(128), nullable=True)
     meta = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+
+# --- 0.2.2: new tables only (no column changes), so ``create_all`` / ``init_db``
+# adds them to an existing database. Hand-written SQL: docs/migrations/0.2.2.sql.
+
+
+class RateLimitCounter(Base):
+    """Fixed-window counters: send/login rate limits, wrong-code attempts, login
+    failures for the captcha gate. One row per key, updated with an atomic upsert."""
+
+    __tablename__ = "rate_limit_counters"
+    __table_args__ = AUTH
+
+    key = Column(String(255), primary_key=True)
+    count = Column(Integer, nullable=False, default=0, server_default="0")
+    window_start = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class TwoFactorChallenge(Base):
+    """Pending second login step (password already verified)."""
+
+    __tablename__ = "two_factor_challenges"
+    __table_args__ = AUTH
+
+    token_hash = Column(String(64), primary_key=True)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), nullable=False, index=True)
+    pw_fp = Column(String(64), nullable=False)
+    device_name = Column(String(128), nullable=True)
+    attempts = Column(Integer, nullable=False, default=0, server_default="0")
+    passed = Column(Boolean, nullable=False, default=False, server_default="false")
+    method = Column(String(16), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+class RefreshToken(Base):
+    """Opaque refresh tokens, stored as SHA-256. Rotation keeps ``family_id``; a
+    rotated token presented again revokes the whole family (reuse detection)."""
+
+    __tablename__ = "refresh_tokens"
+    __table_args__ = (
+        UniqueConstraint("token_hash"),
+        AUTH,
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="CASCADE"), nullable=False, index=True)
+    family_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    token_hash = Column(String(64), nullable=False)
+    session_id = Column(String(64), nullable=True)
+    device_name = Column(String(128), nullable=True)
+    ip = Column(String(64), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    # rotated | logout | password_changed | two_factor_disabled | reuse_detected |
+    # session_replaced | admin | deleted | expired
+    revoked_reason = Column(String(32), nullable=True)
+    replaced_by = Column(UUID(as_uuid=True), nullable=True)
+
+
+class CaptchaChallenge(Base):
+    """Built-in image captcha answers (hashed), single use."""
+
+    __tablename__ = "captcha_challenges"
+    __table_args__ = AUTH
+
+    id = Column(String(64), primary_key=True)
+    answer_hash = Column(String(64), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=False, index=True)

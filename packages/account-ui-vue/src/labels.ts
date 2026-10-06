@@ -89,6 +89,32 @@ export type ProfileLabels = {
   uploading: string
   avatarHint: string
   error: string
+  // 0.2.2
+  emailCode: string
+  emailCodePlaceholder: string
+  sendCode: string
+  sending: string
+  resendIn: string
+  codeSentTo: string
+  passwordEmailCodeHint: string
+  changeEmail: string
+  currentEmail: string
+  newEmail: string
+  confirmChangeEmail: string
+  emailChanged: string
+  deleteAccount: string
+  deleteAccountHint: string
+  deleteAccountConfirm: string
+  deleteAccountTyped: string
+  accountDeleted: string
+  twoFactorCode: string
+  logout: string
+  logoutAll: string
+  loggingOut: string
+  captcha: string
+  captchaPlaceholder: string
+  captchaRefresh: string
+  captchaLoadFailed: string
 }
 
 const twoFactorZh: TwoFactorLabels = {
@@ -281,6 +307,31 @@ const profileZh: ProfileLabels = {
   uploading: "上传中…",
   avatarHint: "点击头像上传，支持 JPG / PNG / WEBP。未上传时按性别显示默认头像。",
   error: "请求失败",
+  emailCode: "邮箱验证码",
+  emailCodePlaceholder: "6 位验证码",
+  sendCode: "发送验证码",
+  sending: "发送中…",
+  resendIn: "{s} 秒后重发",
+  codeSentTo: "验证码已发送至 {email}",
+  passwordEmailCodeHint: "修改密码需要邮箱验证码，请先发送验证码到当前邮箱。",
+  changeEmail: "修改邮箱",
+  currentEmail: "当前邮箱",
+  newEmail: "新邮箱",
+  confirmChangeEmail: "确认修改",
+  emailChanged: "邮箱已修改",
+  deleteAccount: "注销账号",
+  deleteAccountHint: "注销后账号将无法登录，相关数据按平台规则删除或匿名化，且无法恢复。",
+  deleteAccountConfirm: "确认注销",
+  deleteAccountTyped: "我已了解，确认永久注销账号",
+  accountDeleted: "账号已注销",
+  twoFactorCode: "两步验证码或恢复码",
+  logout: "退出登录",
+  logoutAll: "退出所有设备",
+  loggingOut: "退出中…",
+  captcha: "图形验证码",
+  captchaPlaceholder: "输入图中字符",
+  captchaRefresh: "换一张",
+  captchaLoadFailed: "验证码加载失败，请点击换一张",
 }
 
 const profileEn: ProfileLabels = {
@@ -305,6 +356,31 @@ const profileEn: ProfileLabels = {
   uploading: "Uploading…",
   avatarHint: "Click the avatar to upload JPG / PNG / WEBP. A gender fallback is used until you upload one.",
   error: "Request failed",
+  emailCode: "Email code",
+  emailCodePlaceholder: "6-digit code",
+  sendCode: "Send code",
+  sending: "Sending…",
+  resendIn: "Resend in {s}s",
+  codeSentTo: "Code sent to {email}",
+  passwordEmailCodeHint: "Changing your password needs an email code. Send one to your current email first.",
+  changeEmail: "Change email",
+  currentEmail: "Current email",
+  newEmail: "New email",
+  confirmChangeEmail: "Confirm",
+  emailChanged: "Email updated",
+  deleteAccount: "Delete account",
+  deleteAccountHint: "After deletion you can no longer sign in. Your data is removed or anonymised and this cannot be undone.",
+  deleteAccountConfirm: "Delete my account",
+  deleteAccountTyped: "I understand this permanently deletes my account",
+  accountDeleted: "Account deleted",
+  twoFactorCode: "2FA code or recovery code",
+  logout: "Sign out",
+  logoutAll: "Sign out of all devices",
+  loggingOut: "Signing out…",
+  captcha: "Captcha",
+  captchaPlaceholder: "Enter the characters",
+  captchaRefresh: "New image",
+  captchaLoadFailed: "Could not load the captcha, click to retry",
 }
 
 export const defaultTwoFactorLabels = { zh: twoFactorZh, en: twoFactorEn }

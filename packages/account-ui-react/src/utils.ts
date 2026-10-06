@@ -6,6 +6,10 @@ export function messageOf(error: unknown, fallback = "请求失败") {
   return fallback
 }
 
+export function errorCodeOf(error: unknown): string | undefined {
+  return error instanceof AccountApiError ? error.code : undefined
+}
+
 export function textOf(event: Event) {
   return (event.target as HTMLInputElement).value
 }

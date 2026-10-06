@@ -1,6 +1,6 @@
 [project]
 name = "account-kit"
-version = "0.2.1"
+version = "0.2.2"
 description = "Shared async account service for FastAPI apps"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -40,7 +40,8 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27"]
+captcha = ["Pillow>=9.2"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "httpx>=0.27", "Pillow>=9.2"]
 
 [build-system]
 requires = ["setuptools>=77"]
@@ -50,7 +51,7 @@ build-backend = "setuptools.build_meta"
 where = ["src"]
 
 [tool.setuptools.package-data]
-account_kit = ["templates/emails/*.html"]
+account_kit = ["templates/emails/*.html", "sql/*.sql"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
