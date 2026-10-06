@@ -7,14 +7,24 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.models import VerificationCode
 
-OTP_PURPOSES = {"register", "reset_password", "change_password", "login_2fa", "disable_2fa"}
+OTP_PURPOSES = {
+    "register",
+    "reset_password",
+    "change_password",
+    "login_2fa",
+    "disable_2fa",
+    "change_email",
+    "delete_account",
+}
 OTP_TTL = timedelta(minutes=5)
 OTP_RESEND_WINDOW = timedelta(minutes=5)
+CODE_INVALID_MESSAGE = "验证码错误或已失效"
+CODE_LOCKED_MESSAGE = "验证码错误次数过多，请重新获取验证码"
 
 
 def normalize_email(email: str) -> str:
@@ -84,11 +94,13 @@ async def assert_resend_allowed(db: AsyncSession, email: str, purpose: str) -> N
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="验证码发送频繁，请稍后再试")
 
 
-async def create_code(db: AsyncSession, secret: str, email: str, purpose: str, code: str) -> VerificationCode:
+async def create_code(
+    db: AsyncSession, secret: str, email: str, purpose: str, code: str, *, bind=None
+) -> VerificationCode:
     now = datetime.now(timezone.utc)
     row = VerificationCode(
         email=normalize_email(email),
-        code=hash_otp(secret, email, purpose, code),
+        code=hash_otp(bound_secret(secret, bind), email, purpose, code),
         purpose=purpose,
         created_at=now,
         expires_at=now + OTP_TTL,
@@ -97,3 +109,104 @@ async def create_code(db: AsyncSession, secret: str, email: str, purpose: str, c
     db.add(row)
     await db.commit()
     return row
+
+
+# --- 0.2.2: wrong-attempt cap and send limits ---------------------------------
+
+
+def bound_secret(secret: str, bind=None) -> str:
+    """Codes bound to a user (e.g. change_email sent to an address the user does not
+    own yet) mix the user id into the hash so nobody else can redeem them."""
+    return f"{secret}:{bind}" if bind else secret
+
+
+def _fail_key(email: str, purpose: str) -> str:
+    return f"otp_fail:{purpose}:{normalize_email(email)}"
+
+
+async def invalidate_codes(db: AsyncSession, email: str, purpose: str) -> None:
+    from account_kit.state import run_independent
+
+    stmt = (
+        update(VerificationCode)
+        .where(
+            VerificationCode.email == normalize_email(email),
+            VerificationCode.purpose == purpose,
+            VerificationCode.used.is_(False),
+        )
+        .values(used=True)
+    )
+
+    async def work(conn):
+        await conn.execute(stmt)
+
+    await run_independent(db, work)
+
+
+async def check_code(
+    db: AsyncSession,
+    config,
+    email: str,
+    purpose: str,
+    code: Optional[str],
+    *,
+    consume: bool = True,
+    bind=None,
+    missing_detail=None,
+):
+    """Validate an emailed code. Each wrong code counts against email+purpose;
+    after ``config.verify_code_max_attempts`` wrong codes every outstanding code for
+    that email+purpose is invalidated. Returns the row (marked used if ``consume``)."""
+    from account_kit.state import counter_clear, counter_hit
+
+    value = (code or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail=missing_detail or CODE_INVALID_MESSAGE)
+    secret = bound_secret(config.code_secret(), bind)
+    row = await find_valid_code(db, secret, email, purpose, value)
+    limit = int(config.verify_code_max_attempts or 0)
+    if row is None:
+        if limit > 0:
+            window = int(OTP_TTL.total_seconds()) + 60
+            count, _ttl = await counter_hit(db, config, _fail_key(email, purpose), window)
+            if count >= limit:
+                await invalidate_codes(db, email, purpose)
+                await counter_clear(db, config, _fail_key(email, purpose))
+                from account_kit.audit import CODE_LOCKED, audit
+
+                await audit(db, config, CODE_LOCKED, meta={"email": normalize_email(email), "purpose": purpose})
+                raise HTTPException(status_code=400, detail=CODE_LOCKED_MESSAGE)
+        raise HTTPException(status_code=400, detail=CODE_INVALID_MESSAGE)
+    if limit > 0:
+        await counter_clear(db, config, _fail_key(email, purpose))
+    if consume:
+        row.used = True
+    return row
+
+
+async def reset_attempts(db: AsyncSession, config, email: str, purpose: str) -> None:
+    from account_kit.state import counter_clear
+
+    if int(config.verify_code_max_attempts or 0) > 0:
+        await counter_clear(db, config, _fail_key(email, purpose))
+
+
+async def run_before_action(config, request, action: str, info: Optional[dict] = None) -> None:
+    if config.before_action is not None and request is not None:
+        await config.before_action(request, action, info or {})
+
+
+async def guard_send(db: AsyncSession, config, request, email: str, purpose: str) -> None:
+    """Host hooks plus per-IP / per-email send limits for every emailed code."""
+    from account_kit.audit import request_ip
+    from account_kit.state import enforce_limit
+
+    email = normalize_email(email)
+    if config.before_send_code is not None and request is not None:
+        await config.before_send_code(request, email, purpose)
+    await run_before_action(config, request, "send_code", {"email": email, "purpose": purpose})
+    window = int(config.send_code_rate_window_seconds or 3600)
+    ip = request_ip(config, request)
+    if ip:
+        await enforce_limit(db, config, f"send_code:ip:{ip}", config.send_code_rate_limit_ip, window, "验证码发送过于频繁，请稍后再试")
+    await enforce_limit(db, config, f"send_code:email:{email}", config.send_code_rate_limit_email, window, "验证码发送过于频繁，请稍后再试")

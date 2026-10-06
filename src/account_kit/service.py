@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import AccountKitConfig
 from account_kit.models import Role, RoleChangeRequest, User, UserTier, UserTierAssignment
-from account_kit.otp import consume_code, normalize_email
+from account_kit.otp import check_code, normalize_email
 from account_kit.profile import birth_year_month_to_date, format_birth_year_month, normalize_gender
 from account_kit.schemas import RegisterRequest, UserProfileUpdate, UserResponse
 from account_kit.security import create_access_token, hash_password, verify_password
@@ -22,6 +22,7 @@ ADMIN_LIKE = re.compile(
     re.IGNORECASE,
 )
 MAX_DEVICE_NAME = 64
+EMAIL_CODE_REQUIRED = {"code": "EMAIL_CODE_REQUIRED", "message": "请输入邮箱验证码", "email_code_required": True}
 
 
 def assert_role_code(code: str) -> str:
@@ -140,12 +141,28 @@ def _clear_session(user: User) -> None:
     user.session_device_name = None
 
 
-async def _revoke_second_factor_memory(db: AsyncSession, user_id) -> None:
-    from account_kit.two_factor.challenges import challenge_store
+async def revoke_credentials(
+    db: AsyncSession,
+    config: Optional[AccountKitConfig],
+    user_id,
+    reason: str,
+    *,
+    trusted_devices: bool = True,
+) -> None:
+    """Revoke refresh tokens, pending 2FA challenges and (optionally) trusted
+    devices. Runs in the caller's transaction; the caller commits."""
+    from account_kit.tokens import revoke_user_tokens
+    from account_kit.two_factor.challenges import discard_user_challenges
     from account_kit.two_factor.service import revoke_trusted
 
-    await revoke_trusted(db, user_id)
-    challenge_store.discard_user(user_id)
+    if trusted_devices:
+        await revoke_trusted(db, user_id)
+    await discard_user_challenges(db, config, user_id)
+    await revoke_user_tokens(db, user_id, reason)
+
+
+async def _revoke_second_factor_memory(db: AsyncSession, user_id, config: Optional[AccountKitConfig] = None) -> None:
+    await revoke_credentials(db, config, user_id, "password_changed")
 
 
 async def register_user(db: AsyncSession, config: AccountKitConfig, payload: RegisterRequest) -> User:
@@ -154,7 +171,7 @@ async def register_user(db: AsyncSession, config: AccountKitConfig, payload: Reg
         raise HTTPException(status_code=400, detail=f"仅允许带有以下后缀的邮箱注册: {allowed}")
     assert_password(config, payload.password)
     username = assert_username(config, payload.username)
-    await consume_code(db, config.code_secret(), payload.email, "register", payload.code)
+    await check_code(db, config, payload.email, "register", payload.code)
 
     if await get_user_by_username(db, username):
         raise HTTPException(status_code=400, detail="Username already registered")
@@ -207,6 +224,33 @@ async def login_user(
     trusted_device_token: str = "",
     mfa_satisfied: bool = False,
 ) -> tuple[User, str]:
+    user, body = await login_user_tokens(
+        db,
+        config,
+        username=username,
+        password=password,
+        force=force,
+        device_name=device_name,
+        trusted_device_token=trusted_device_token,
+        mfa_satisfied=mfa_satisfied,
+    )
+    return user, body["access_token"]
+
+
+async def login_user_tokens(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    *,
+    username: str,
+    password: str,
+    force: bool = False,
+    device_name: str = "",
+    trusted_device_token: str = "",
+    mfa_satisfied: bool = False,
+    ip: str = "",
+) -> tuple[User, dict]:
+    """Password login. Returns the token body: ``access_token``, ``token_type`` and,
+    with ``refresh_token_enabled``, ``refresh_token`` + ``refresh_expires_in``."""
     user = await get_user_by_username(db, (username or "").strip())
     if not user or not verify_password(password, user.hashed_password):
         raise HTTPException(
@@ -223,9 +267,9 @@ async def login_user(
         from account_kit.two_factor.service import is_enabled, mfa_required, trusted_device_ok
 
         if await is_enabled(db, user.id) and not await trusted_device_ok(db, user.id, trusted_device_token):
-            raise mfa_required(user, sanitize_device_name(device_name), config)
+            raise await mfa_required(db, user, sanitize_device_name(device_name), config)
 
-    return await complete_login(db, config, user, force=force, device_name=device_name)
+    return await complete_login_tokens(db, config, user, force=force, device_name=device_name, ip=ip)
 
 
 async def complete_login(
@@ -236,6 +280,21 @@ async def complete_login(
     force: bool = False,
     device_name: str = "",
 ) -> tuple[User, str]:
+    user, body = await complete_login_tokens(db, config, user, force=force, device_name=device_name)
+    return user, body["access_token"]
+
+
+async def complete_login_tokens(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    *,
+    force: bool = False,
+    device_name: str = "",
+    ip: str = "",
+) -> tuple[User, dict]:
+    from account_kit.tokens import issue_refresh_token, refresh_expires_in, revoke_user_tokens
+
     session_id = None
     if config.session_mode == "single_device":
         if _session_active(config, user) and not force:
@@ -251,6 +310,8 @@ async def complete_login(
         user.current_session_id = session_id
         user.session_last_seen_at = datetime.now(timezone.utc)
         user.session_device_name = sanitize_device_name(device_name)
+        # The previous session is gone; so are its refresh tokens.
+        await revoke_user_tokens(db, user.id, "session_replaced")
 
     if config.on_login is not None:
         await config.on_login(db, user)
@@ -262,23 +323,31 @@ async def complete_login(
         is_admin=bool(user.is_admin),
         session_id=session_id,
     )
+    body = {"access_token": token, "token_type": "bearer"}
+    if config.refresh_token_enabled:
+        raw, _row = await issue_refresh_token(
+            db, config, user, session_id=session_id, device_name=sanitize_device_name(device_name), ip=ip
+        )
+        body["refresh_token"] = raw
+        body["refresh_expires_in"] = refresh_expires_in(config)
     await db.commit()
-    return user, token
+    return user, body
 
 
-async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str, code: str, new_password: str) -> None:
+async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str, code: str, new_password: str) -> Optional[User]:
     assert_password(config, new_password)
-    await consume_code(db, config.code_secret(), email, "reset_password", code)
+    await check_code(db, config, email, "reset_password", code)
     user = await get_user_by_email(db, email)
     if not user:
         raise HTTPException(status_code=404, detail="该邮箱未注册账号")
     user.hashed_password = hash_password(new_password)
     if config.session_mode == "single_device":
         _clear_session(user)
-    await _revoke_second_factor_memory(db, user.id)
+    await revoke_credentials(db, config, user.id, "password_changed")
     if config.on_password_changed is not None:
         await config.on_password_changed(db, user)
     await db.commit()
+    return user
 
 
 async def change_password(
@@ -294,11 +363,11 @@ async def change_password(
         raise HTTPException(status_code=400, detail="旧密码错误")
     assert_password(config, new_password)
     if config.change_password_require_email_code:
-        await consume_code(db, config.code_secret(), user.email, "change_password", code)
+        await check_code(db, config, user.email, "change_password", code, missing_detail=dict(EMAIL_CODE_REQUIRED))
     user.hashed_password = hash_password(new_password)
     if config.session_mode == "single_device":
         _clear_session(user)
-    await _revoke_second_factor_memory(db, user.id)
+    await revoke_credentials(db, config, user.id, "password_changed")
     if config.on_password_changed is not None:
         await config.on_password_changed(db, user)
     await db.commit()
@@ -319,11 +388,32 @@ async def update_profile(
         user.username = username
         username_changed = True
 
+    email_changed_from = None
     if payload.email is not None and normalize_email(payload.email) != user.email:
         nxt = normalize_email(payload.email)
-        existing = await get_user_by_email(db, nxt)
-        if existing and existing.id != user.id:
-            raise HTTPException(status_code=400, detail="Email already registered")
+        mode = (config.profile_email_change or "verify").lower()
+        if mode == "reject":
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "EMAIL_CHANGE_VIA_ENDPOINT", "message": "请通过 POST /me/email 修改邮箱"},
+            )
+        await assert_email_available(db, config, user, nxt)
+        if mode != "direct":
+            if not (payload.email_code or "").strip():
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "code": "EMAIL_VERIFICATION_REQUIRED",
+                        "message": "修改邮箱需要新邮箱收到的验证码",
+                        "email_code_required": True,
+                    },
+                )
+            if config.change_email_require_password and not verify_password(
+                payload.current_password or "", user.hashed_password
+            ):
+                raise HTTPException(status_code=400, detail="当前密码错误")
+            await check_code(db, config, nxt, PURPOSE_CHANGE_EMAIL, payload.email_code, bind=user.id)
+        email_changed_from = user.email
         user.email = nxt
 
     if payload.full_name is not None:
@@ -339,14 +429,101 @@ async def update_profile(
         if not payload.current_password or not verify_password(payload.current_password, user.hashed_password):
             raise HTTPException(status_code=400, detail="当前密码错误")
         assert_password(config, payload.new_password)
-        await consume_code(db, config.code_secret(), user.email, "change_password", payload.code)
+        code_email = email_changed_from or user.email
+        await check_code(db, config, code_email, "change_password", payload.code, missing_detail=dict(EMAIL_CODE_REQUIRED))
         user.hashed_password = hash_password(payload.new_password)
         if config.session_mode == "single_device":
             _clear_session(user)
-        await _revoke_second_factor_memory(db, user.id)
+        await revoke_credentials(db, config, user.id, "password_changed")
         if config.on_password_changed is not None:
             await config.on_password_changed(db, user)
 
     await db.commit()
     await db.refresh(user)
+    if email_changed_from is not None:
+        user._kit_email_changed_from = email_changed_from  # read by the router for auditing
     return user, username_changed
+
+
+PURPOSE_CHANGE_EMAIL = "change_email"
+PURPOSE_DELETE_ACCOUNT = "delete_account"
+
+
+async def assert_email_available(db: AsyncSession, config: AccountKitConfig, user: User, email: str) -> str:
+    nxt = normalize_email(email)
+    if not nxt or "@" not in nxt:
+        raise HTTPException(status_code=400, detail="邮箱无效")
+    if not email_allowed(config, nxt):
+        allowed = ", ".join(config.allowed_email_domains)
+        raise HTTPException(status_code=400, detail=f"仅允许使用以下后缀的邮箱: {allowed}")
+    existing = await get_user_by_email(db, nxt)
+    if existing and existing.id != user.id:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    return nxt
+
+
+async def change_email(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    user: User,
+    new_email: str,
+    code: Optional[str],
+    password: Optional[str] = None,
+) -> str:
+    """Confirm an email change with the code sent to the new address. Returns the old email."""
+    nxt = await assert_email_available(db, config, user, new_email)
+    if nxt == user.email:
+        raise HTTPException(status_code=400, detail="新邮箱与当前邮箱相同")
+    if config.change_email_require_password and not verify_password(password or "", user.hashed_password):
+        raise HTTPException(status_code=400, detail="当前密码错误")
+    await check_code(db, config, nxt, PURPOSE_CHANGE_EMAIL, code, bind=user.id)
+    old = user.email
+    user.email = nxt
+    await db.commit()
+    await db.refresh(user)
+    return old
+
+
+def _tombstone(user: User) -> None:
+    import secrets as _secrets
+
+    short = uuid.uuid4().hex[:12]
+    user.username = f"deleted_{short}"
+    user.email = f"deleted+{user.id}@deleted.invalid"
+    user.hashed_password = hash_password(_secrets.token_urlsafe(24))
+    user.full_name = None
+    user.institution = None
+    user.gender = None
+    user.birth_year_month = None
+    user.is_active = False
+    user.is_admin = False
+
+
+async def delete_user_account(db: AsyncSession, config: AccountKitConfig, user: User) -> str:
+    """Shared by admin DELETE /users/{id} and self-delete. Calls ``on_deleted``
+    first (pre-0.2.2 behaviour), then hard-deletes or soft-deletes per
+    ``config.user_delete_mode``. Returns the mode used."""
+    from account_kit import avatar as avatar_mod
+
+    mode = "soft" if (config.user_delete_mode or "hard").lower() == "soft" else "hard"
+    if config.on_deleted is not None:
+        await config.on_deleted(db, user)
+    if mode == "hard":
+        from account_kit.two_factor.challenges import challenge_store
+
+        challenge_store.discard_user(user.id)
+        await db.delete(user)
+        await db.commit()
+        return mode
+    old_avatar = user.avatar_path
+    await revoke_credentials(db, config, user.id, "deleted")
+    from account_kit.two_factor.service import wipe_two_factor
+
+    await wipe_two_factor(db, user.id)
+    _clear_session(user)
+    _tombstone(user)
+    user.avatar_path = None
+    await db.commit()
+    if old_avatar and config.avatar_enabled:
+        await avatar_mod.delete_avatar(config, old_avatar)
+    return mode

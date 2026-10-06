@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import AccountKitConfig
 from account_kit.models import TwoFactorRecoveryCode, TrustedDevice, User, UserTwoFactor, VerificationCode
-from account_kit.two_factor.challenges import TTL_SECONDS, challenge_store
+from account_kit.two_factor.challenges import TTL_SECONDS, challenge_store, create_challenge, discard_user_challenges  # noqa: F401
 from account_kit.two_factor.totp import decrypt_secret, encrypt_secret, generate_secret, match_step, provisioning_uri
 
 RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
@@ -146,15 +146,19 @@ async def verify_second_factor(
 
 async def consume_email_factor(db: AsyncSession, config: AccountKitConfig, user: User, purpose: str, email_code: str) -> str:
     """Single-use check of an emailed 2FA code; marks it used on success."""
-    from account_kit.otp import find_valid_code
-
     if not config.two_factor_email_enabled:
         raise _err(400, "EMAIL_UNAVAILABLE", "邮箱验证不可用")
+    from account_kit.otp import CODE_LOCKED_MESSAGE, check_code
+
     value = (email_code or "").strip()
-    found = await find_valid_code(db, config.code_secret(), user.email, purpose, value) if user.email and value else None
-    if found is None:
+    if not user.email or not value:
         raise _err(400, "EMAIL_CODE_INVALID", "邮箱验证码错误或已失效")
-    found.used = True
+    try:
+        await check_code(db, config, user.email, purpose, value)
+    except HTTPException as exc:
+        if exc.detail == CODE_LOCKED_MESSAGE:
+            raise _err(400, "EMAIL_CODE_LOCKED", CODE_LOCKED_MESSAGE) from exc
+        raise _err(400, "EMAIL_CODE_INVALID", "邮箱验证码错误或已失效") from exc
     await db.commit()
     return "email"
 
@@ -187,6 +191,9 @@ async def send_email_code(
             raise _err(429, "EMAIL_CODE_TOO_FREQUENT", "验证码发送频繁，请稍后再试")
     code = generate_otp()
     await create_code(db, config.code_secret(), email, purpose, code)
+    from account_kit.otp import reset_attempts
+
+    await reset_attempts(db, config, email, purpose)
     lang = language if language in ("zh", "en") else "zh"
     if config.mailer is None and background_tasks is not None:
         background_tasks.add_task(send_code_email, config, email, purpose, code, lang)
@@ -226,11 +233,15 @@ async def disable(
     for item in result.scalars().all():
         await db.delete(item)
     await revoke_trusted(db, user.id)
-    challenge_store.discard_user(user.id)
+    await discard_user_challenges(db, config, user.id)
+    from account_kit.tokens import revoke_user_tokens
+
+    await revoke_user_tokens(db, user.id, "two_factor_disabled")
     await db.commit()
 
 
-async def admin_reset(db: AsyncSession, user_id) -> None:
+async def wipe_two_factor(db: AsyncSession, user_id) -> None:
+    """Turn 2FA off and drop recovery codes (caller commits)."""
     row = await get_row(db, user_id)
     if row:
         row.enabled = False
@@ -240,8 +251,19 @@ async def admin_reset(db: AsyncSession, user_id) -> None:
     result = await db.execute(select(TwoFactorRecoveryCode).where(TwoFactorRecoveryCode.user_id == user_id))
     for item in result.scalars().all():
         await db.delete(item)
+
+
+async def admin_reset(db: AsyncSession, user_id, config: Optional[AccountKitConfig] = None) -> None:
+    from account_kit.tokens import revoke_user_tokens
+
+    if config is None:
+        from account_kit.config import _config as current
+
+        config = current
+    await wipe_two_factor(db, user_id)
     await revoke_trusted(db, user_id)
-    challenge_store.discard_user(user_id)
+    await discard_user_challenges(db, config, user_id)
+    await revoke_user_tokens(db, user_id, "admin")
     await db.commit()
 
 
@@ -388,11 +410,13 @@ async def revoke_trusted(db: AsyncSession, user_id) -> None:
         row.revoked_at = now
 
 
-def mfa_required(user: User, device_name: str = "", config: Optional[AccountKitConfig] = None) -> HTTPException:
+async def mfa_required(
+    db: AsyncSession, user: User, device_name: str = "", config: Optional[AccountKitConfig] = None
+) -> HTTPException:
     """401 (non-200 on purpose: old clients show ``message`` instead of treating
     the response as a successful login)."""
     ttl = config.challenge_ttl() if config is not None else TTL_SECONDS
-    token = challenge_store.create(user.id, user.hashed_password, device_name=device_name, ttl_seconds=ttl)
+    token = await create_challenge(db, config, user.id, user.hashed_password, device_name, ttl)
     email_ok = bool(config is not None and email_factor_available(config, user))
     detail = {
         "code": "MFA_REQUIRED",

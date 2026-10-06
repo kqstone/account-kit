@@ -19,6 +19,8 @@ _ACTIONS = {
         "change_password": "修改密码",
         "login_2fa": "登录验证",
         "disable_2fa": "关闭两步验证",
+        "change_email": "修改账号邮箱",
+        "delete_account": "注销账号",
     },
     "en": {
         "register": "register",
@@ -26,6 +28,8 @@ _ACTIONS = {
         "change_password": "change your password",
         "login_2fa": "sign in",
         "disable_2fa": "turn off two-factor authentication",
+        "change_email": "change your account email",
+        "delete_account": "delete your account",
     },
 }
 

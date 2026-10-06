@@ -247,7 +247,10 @@ async def test_captcha_counts_unknown_users_by_ip(api):
 async def test_challenge_ttl_and_attempts_from_config(api):
     import time as _time
 
-    from account_kit.two_factor.challenges import challenge_store
+    from sqlalchemy import update
+
+    from account_kit.models import TwoFactorChallenge
+    from account_kit.two_factor.challenges import _h, load_challenge
 
     _headers, totp, _recovery = await _mfa_user(api)
     config = get_config()
@@ -256,7 +259,8 @@ async def test_challenge_ttl_and_attempts_from_config(api):
     client = api["client"]
     detail = await _challenge(api)
     assert detail["expires_in"] == 90
-    item = challenge_store.get(detail["challenge_token"])
+    async with api["sessions"]() as db:
+        item = await load_challenge(db, config, detail["challenge_token"])
     assert 85 <= item.expires_at - _time.monotonic() <= 90
     token = detail["challenge_token"]
     first = await client.post("/api/auth/login/2fa", data={"challenge_token": token, "code": "000000"})
@@ -270,7 +274,20 @@ async def test_challenge_ttl_and_attempts_from_config(api):
     assert third.json()["detail"]["code"] == "MFA_TOO_MANY_ATTEMPTS"
 
     item_token = (await _challenge(api))["challenge_token"]
-    challenge_store.get(item_token).expires_at = _time.monotonic() - 1
+    from datetime import datetime, timedelta, timezone
+
+    if not config.use_db_state():
+        from account_kit.two_factor.challenges import challenge_store
+
+        challenge_store.get(item_token).expires_at = _time.monotonic() - 1
+    else:
+        async with api["sessions"]() as db:
+            await db.execute(
+                update(TwoFactorChallenge)
+                .where(TwoFactorChallenge.token_hash == _h(item_token))
+                .values(expires_at=datetime.now(timezone.utc) - timedelta(seconds=1))
+            )
+            await db.commit()
     expired = await client.post("/api/auth/login/2fa", data={"challenge_token": item_token, "code": totp.now()})
     assert expired.status_code == 401
     assert expired.json()["detail"]["code"] == "MFA_CHALLENGE_INVALID"

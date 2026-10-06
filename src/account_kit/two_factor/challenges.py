@@ -85,3 +85,126 @@ class ChallengeStore:
 
 
 challenge_store = ChallengeStore()
+
+
+# --- 0.2.2: storage-agnostic API -------------------------------------------------
+# ``state_backend="db"`` keeps challenges in ``auth.two_factor_challenges`` so the
+# second login step works across processes; ``"memory"`` uses ``challenge_store``.
+# ``challenge_store`` stays importable (hosts call ``discard_user`` on it).
+
+
+def _db_mode(config) -> bool:
+    return config is not None and config.use_db_state()
+
+
+async def create_challenge(db, config, user_id: uuid.UUID, hashed_password: str, device_name: str, ttl: int) -> str:
+    if not _db_mode(config):
+        return challenge_store.create(user_id, hashed_password, device_name=device_name, ttl_seconds=ttl)
+    from datetime import datetime, timedelta, timezone
+
+    from sqlalchemy import delete, insert
+
+    from account_kit.models import TwoFactorChallenge
+    from account_kit.state import run_independent
+
+    raw = secrets.token_urlsafe(32)
+    now = datetime.now(timezone.utc)
+    values = {
+        "token_hash": _h(raw),
+        "user_id": user_id,
+        "pw_fp": password_fingerprint(hashed_password),
+        "device_name": (device_name or "")[:128],
+        "attempts": 0,
+        "passed": False,
+        "expires_at": now + timedelta(seconds=ttl),
+    }
+
+    async def work(conn):
+        await conn.execute(delete(TwoFactorChallenge).where(TwoFactorChallenge.expires_at < now))
+        await conn.execute(insert(TwoFactorChallenge).values(**values))
+
+    await run_independent(db, work)
+    return raw
+
+
+async def load_challenge(db, config, raw: Optional[str]) -> Optional[Challenge]:
+    if not _db_mode(config):
+        return challenge_store.get(raw)
+    if not raw or len(raw) > 256:
+        return None
+    from datetime import datetime, timezone
+
+    from sqlalchemy import select
+
+    from account_kit.models import TwoFactorChallenge
+
+    result = await db.execute(select(TwoFactorChallenge).where(TwoFactorChallenge.token_hash == _h(raw.strip())))
+    row = result.scalars().first()
+    if row is None:
+        return None
+    expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
+    left = (expires - datetime.now(timezone.utc)).total_seconds()
+    if left <= 0:
+        await discard_challenge(db, config, raw)
+        return None
+    return Challenge(
+        user_id=row.user_id,
+        pw_fp=row.pw_fp,
+        expires_at=time.monotonic() + left,
+        device_name=row.device_name or "",
+        attempts=int(row.attempts or 0),
+        passed=bool(row.passed),
+        method=row.method,
+    )
+
+
+async def save_challenge(db, config, raw: str, item: Challenge) -> None:
+    """Persist ``attempts`` / ``passed`` / ``method`` (memory items are live objects)."""
+    if not _db_mode(config):
+        return
+    from sqlalchemy import update
+
+    from account_kit.models import TwoFactorChallenge
+    from account_kit.state import run_independent
+
+    stmt = (
+        update(TwoFactorChallenge)
+        .where(TwoFactorChallenge.token_hash == _h(raw.strip()))
+        .values(attempts=item.attempts, passed=item.passed, method=item.method)
+    )
+
+    async def work(conn):
+        await conn.execute(stmt)
+
+    await run_independent(db, work)
+
+
+async def discard_challenge(db, config, raw: Optional[str]) -> None:
+    if not raw:
+        return
+    challenge_store.discard(raw)
+    if not _db_mode(config):
+        return
+    from sqlalchemy import delete
+
+    from account_kit.models import TwoFactorChallenge
+    from account_kit.state import run_independent
+
+    stmt = delete(TwoFactorChallenge).where(TwoFactorChallenge.token_hash == _h(raw.strip()))
+
+    async def work(conn):
+        await conn.execute(stmt)
+
+    await run_independent(db, work)
+
+
+async def discard_user_challenges(db, config, user_id) -> None:
+    """Runs in the caller's transaction (commits with the password change etc.)."""
+    challenge_store.discard_user(user_id)
+    if not _db_mode(config):
+        return
+    from sqlalchemy import delete
+
+    from account_kit.models import TwoFactorChallenge
+
+    await db.execute(delete(TwoFactorChallenge).where(TwoFactorChallenge.user_id == user_id))

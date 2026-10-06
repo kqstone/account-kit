@@ -4,10 +4,19 @@ from fastapi import APIRouter, BackgroundTasks, Depends, Form, HTTPException, Re
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_kit import audit as audit_mod
+from account_kit.audit import audit, request_ip
 from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_db, require_admin
-from account_kit.service import complete_login, get_user_by_id
-from account_kit.two_factor.challenges import Challenge, challenge_store, password_fingerprint
+from account_kit.otp import guard_send
+from account_kit.service import complete_login_tokens, get_user_by_id
+from account_kit.two_factor.challenges import (
+    Challenge,
+    discard_challenge,
+    load_challenge,
+    password_fingerprint,
+    save_challenge,
+)
 from account_kit.two_factor.service import (
     admin_reset,
     device_public,
@@ -76,12 +85,13 @@ async def _before_two_factor(request: Request, user) -> None:
 
 
 async def _load_challenge(db: AsyncSession, raw: str) -> "tuple[Challenge, object]":
-    item = challenge_store.get(raw)
+    config = get_config()
+    item = await load_challenge(db, config, raw)
     if item is None:
         raise HTTPException(status_code=401, detail=dict(CHALLENGE_INVALID))
     user = await get_user_by_id(db, item.user_id)
     if user is None or item.pw_fp != password_fingerprint(user.hashed_password) or not await is_enabled(db, user.id):
-        challenge_store.discard(raw)
+        await discard_challenge(db, config, raw)
         raise HTTPException(status_code=401, detail=dict(CHALLENGE_INVALID))
     return item, user
 
@@ -110,17 +120,24 @@ async def setup(
 
 
 @router.post("/2fa/enable")
-async def enable_2fa(body: CodeBody, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def enable_2fa(
+    body: CodeBody, request: Request, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     _require_feature()
     codes = await enable(db, get_config(), current_user, body.code)
+    await audit(db, get_config(), audit_mod.TWO_FACTOR_ENABLED, user_id=current_user.id, request=request)
     return {"enabled": True, "recovery_codes": codes}
 
 
 @router.post("/2fa/disable")
-async def disable_2fa(body: DisableBody, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def disable_2fa(
+    body: DisableBody, request: Request, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     _require_feature()
     code, recovery = _factor(body)
+    user_id = current_user.id
     await disable(db, get_config(), current_user, body.password, code, recovery, body.email_code or "")
+    await audit(db, get_config(), audit_mod.TWO_FACTOR_DISABLED, user_id=user_id, request=request)
     return {"enabled": False}
 
 
@@ -138,14 +155,18 @@ async def disable_email_code(
     if not await is_enabled(db, current_user.id):
         raise HTTPException(status_code=400, detail={"code": "TWO_FACTOR_NOT_ENABLED", "message": "两步验证未开启"})
     await _before_two_factor(request, current_user)
+    await guard_send(db, get_config(), request, current_user.email, PURPOSE_DISABLE_2FA)
     return await send_email_code(db, get_config(), current_user, PURPOSE_DISABLE_2FA, body.language or "zh", background_tasks)
 
 
 @router.post("/2fa/recovery-codes/regenerate")
-async def regenerate_codes(body: DisableBody, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
+async def regenerate_codes(
+    body: DisableBody, request: Request, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)
+):
     _require_feature()
     code, recovery = _factor(body)
     codes = await regenerate_recovery_codes(db, get_config(), current_user, body.password, code, recovery)
+    await audit(db, get_config(), audit_mod.RECOVERY_CODES_REGENERATED, user_id=current_user.id, request=request)
     return {"status": "success", "recovery_codes": codes}
 
 
@@ -209,22 +230,43 @@ async def login_second_factor(
                 raise
             item.attempts += 1
             left = config.challenge_max_attempts() - item.attempts
+            await audit(
+                db,
+                config,
+                audit_mod.LOGIN_2FA_FAILED,
+                user_id=user.id,
+                request=request,
+                device_name=device_name or item.device_name,
+                meta={"code": detail.get("code"), "attempts": item.attempts},
+            )
             if left <= 0:
-                challenge_store.discard(challenge_token)
+                await discard_challenge(db, config, challenge_token)
                 raise HTTPException(
                     status_code=401, detail={"code": "MFA_TOO_MANY_ATTEMPTS", "message": "验证码错误次数过多，请重新登录"}
                 ) from exc
+            await save_challenge(db, config, challenge_token, item)
             raise HTTPException(status_code=exc.status_code, detail={**detail, "attempts_left": left}) from exc
         item.passed = True
-    _user, token = await complete_login(
+        await save_challenge(db, config, challenge_token, item)
+    _user, body = await complete_login_tokens(
         db,
         config,
         user,
         force=force,
         device_name=device_name or item.device_name,
+        ip=request_ip(config, request),
     )
-    challenge_store.discard(challenge_token)
-    body = {"access_token": token, "token_type": "bearer", "two_factor_method": item.method}
+    await discard_challenge(db, config, challenge_token)
+    await audit(
+        db,
+        config,
+        audit_mod.LOGIN_SUCCESS,
+        user_id=user.id,
+        request=request,
+        device_name=device_name or item.device_name,
+        meta={"two_factor_method": item.method},
+    )
+    body = {**body, "two_factor_method": item.method}
     if trust_device:
         raw, expires = await issue_trusted_device(db, config, user.id, device_name or item.device_name)
         body["trusted_device_token"] = raw
@@ -248,12 +290,18 @@ async def login_email_send(
     if item.passed:
         raise HTTPException(status_code=400, detail={"code": "MFA_ALREADY_VERIFIED", "message": "已完成验证"})
     await _before_two_factor(request, user)
+    await guard_send(db, get_config(), request, user.email, PURPOSE_LOGIN_2FA)
     return await send_email_code(db, get_config(), user, PURPOSE_LOGIN_2FA, body.language or "zh", background_tasks)
 
 
 @admin.post("/users/{user_id}/2fa/reset", status_code=204)
-async def reset_user_2fa(user_id: str, _admin=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+async def reset_user_2fa(
+    user_id: str, request: Request, admin_user=Depends(require_admin), db: AsyncSession = Depends(get_db)
+):
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
-    await admin_reset(db, user.id)
+    target = user.id
+    admin_id = admin_user.id
+    await admin_reset(db, target, get_config())
+    await audit(db, get_config(), audit_mod.TWO_FACTOR_RESET, user_id=target, request=request, meta={"admin_id": str(admin_id)})
