@@ -2,7 +2,7 @@
 
 Rendering needs Pillow: ``pip install "account-kit[captcha]"``. Answers are kept
 hashed and single-use in ``auth.captcha_challenges`` (``state_backend="db"``) or
-in process memory (``"memory"``). Adapted from the dedd / dental host services.
+in process memory (``"memory"``).
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 [project]
 name = "account-kit"
 version = "0.2.2"
-description = "Shared async account service for FastAPI apps"
+description = "Reusable async account/auth service for FastAPI + PostgreSQL"
 readme = "README.md"
 requires-python = ">=3.9"
 license = "MIT"

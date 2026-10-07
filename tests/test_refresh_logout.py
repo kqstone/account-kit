@@ -114,7 +114,7 @@ async def test_logout_clears_session_and_is_lenient(api):
     assert (await client.post("/api/auth/logout", headers=bearer("garbage"))).status_code == 200
     out = await client.post("/api/auth/logout", headers=bearer(body))
     assert out.status_code == 200
-    # Session freed: another device logs in without force (dedd semantic).
+    # Session freed: another device logs in without force (single-device semantics).
     again = await _login(api, "lo1", device_name="phone")
     assert again.status_code == 200, again.text
     # Refresh tokens of the logged-out session are revoked.
