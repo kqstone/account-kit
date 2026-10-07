@@ -374,7 +374,7 @@ Query 可选：`email`、`purpose`。
 | 方法 | 路径 | body / 响应 |
 |---|---|---|
 | GET | `/2fa/status` | `{ enabled, enabled_at, recovery_codes_remaining, trusted_devices, email_available, trusted_device_days }` |
-| POST | `/2fa/setup` | 可选 `{ "password" }` → `{ "otpauth_uri", "secret" }` |
+| POST | `/2fa/setup` | `{ "password" }`（管理员必填；普通用户可选）→ `{ "otpauth_uri", "secret" }` |
 | POST | `/2fa/enable` | `{ "code" }` TOTP → `{ "enabled": true, "recovery_codes": ["abcd-efgh", ...] }` **只此一次** |
 | POST | `/2fa/disable` | `{ "password", "code"?, "recovery_code"?, "email_code"? }` → `{ "enabled": false }` |
 | POST | `/2fa/disable/email-code` | `{ "language": "zh" }` 邮箱码关 2FA |
@@ -392,8 +392,8 @@ Query 可选：`email`、`purpose`。
 | 方法 | 路径 | 说明 |
 |---|---|---|
 | GET | `/users` | 全部用户（用户对象数组，无分页） |
-| PATCH | `/users/{user_id}` | `{ "role"?, "is_admin"?, "is_active"?, "approval_status"?, "tier_code"? }` |
-| DELETE | `/users/{user_id}` | 204，删法跟 `user_delete_mode`（demo 默认 hard） |
+| PATCH | `/users/{user_id}` | `{ "role"?, "is_active"?, "approval_status"?, "tier_code"? }`。带 `is_admin` 一律 400 `ADMIN_FLAG_IMMUTABLE`；不能停用/撤审批/删除管理员 |
+| DELETE | `/users/{user_id}` | 204，删法跟 `user_delete_mode`（demo 默认 hard）；管理员 400 `ADMIN_DELETE_FORBIDDEN` |
 | GET | `/roles` | 全部角色 |
 | POST | `/roles` | 201，`{ code, name, sort_order, description, is_default, allow_register }` |
 | PATCH | `/roles/{code}` | 可改 name/sort_order/description/is_default/allow_register |

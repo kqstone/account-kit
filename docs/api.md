@@ -363,8 +363,8 @@
 | `PATCH` | `/tiers/{code}` | 修改等级属性（徽章颜色/排序等） | - |
 | `DELETE` | `/tiers/{code}` | 删除用户等级 | - |
 | `GET` | `/users` | 查看用户列表（按注册时间倒序） | - |
-| `PATCH` | `/users/{user_id}` | 修改用户状态（角色、等级、is_admin、is_active、审批状态） | - |
-| `DELETE` | `/users/{user_id}` | 删除或软删除用户（受 `user_delete_mode` 控制） | - |
+| `PATCH` | `/users/{user_id}` | 修改用户状态（角色、等级、is_active、审批状态）；不能修改 `is_admin`，也不能停用/撤审批管理员（400） | - |
+| `DELETE` | `/users/{user_id}` | 删除或软删除用户（受 `user_delete_mode` 控制）；管理员不可删除（400 `ADMIN_DELETE_FORBIDDEN`） | - |
 | `POST` | `/users/{user_id}/2fa/reset` | 管理员强制重置用户的两步验证（清空 TOTP 及受信设备） | `two_factor_enabled` |
 | `POST` | `/role-change-requests/{request_id}/review` | 审核角色申请（`{"status": "approved" \| "rejected"}`） | - |
 | `GET` | `/audit-logs` | 分页查询系统安全审计日志 | `audit_log_enabled` |

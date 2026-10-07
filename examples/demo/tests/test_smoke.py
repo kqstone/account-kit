@@ -169,3 +169,51 @@ async def test_setup_then_auth_smoke(demo):
     out = await client.post("/api/auth/logout", headers=admin_headers)
     assert out.status_code == 200, out.text
     assert out.json()["status"] == "success"
+
+
+async def test_demo_ensure_admin_no_hijack(demo, db_parts):
+    from datetime import datetime, timezone
+
+    from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+    from account_kit import init_db, seed_defaults
+    from account_kit.models import User, UserTierAssignment
+    from account_kit.security import hash_password
+    from account_kit.seed import default_role, default_tier
+    from server.app import database_url
+
+    engine = create_async_engine(database_url(db_parts), pool_pre_ping=True)
+    try:
+        await init_db(engine)
+        sessions = async_sessionmaker(engine, expire_on_commit=False)
+        async with sessions() as session:
+            await seed_defaults(session)
+            role = await default_role(session)
+            user = User(
+                username="taken",
+                email="taken@example.com",
+                hashed_password=hash_password("secret1a"),
+                role=role.code,
+                is_admin=False,
+                is_active=True,
+                approval_status="approved",
+                approved_at=datetime.now(timezone.utc),
+            )
+            session.add(user)
+            await session.flush()
+            tier = await default_tier(session)
+            session.add(UserTierAssignment(user_id=user.id, tier_code=tier.code))
+            await session.commit()
+    finally:
+        await engine.dispose()
+
+    init = await demo["client"].post(
+        "/api/setup/init",
+        json={
+            "db": db_parts,
+            "admin": {"username": "taken", "email": "admin@example.com", "password": "secret1a"},
+            "mail_mode": "console",
+        },
+    )
+    assert init.status_code == 400, init.text
+    assert _code(init.json()) == "ADMIN_USERNAME_TAKEN"

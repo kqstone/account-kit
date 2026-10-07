@@ -185,7 +185,7 @@ mount_account(app, get_db, config)
 
 ### 管理员后台端点
 
-需具备管理员权限 (`is_admin=True`)。
+需具备管理员权限 (`is_admin=True`)。系统恰好一名管理员，只能由宿主调用 `account_kit.ensure_admin(db, username, email, password)` 创建，任何 API 都不能修改 `is_admin`、删除或停用管理员；管理员登录默认连续 5 次失败锁定 15 分钟。详见 [docs/configuration.md](docs/configuration.md) 与 [docs/upgrade.md](docs/upgrade.md)。
 
 | 方法 | 路径 | 说明 | 所需配置开关 |
 | :--- | :--- | :--- | :--- |

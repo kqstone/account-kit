@@ -32,9 +32,10 @@ def create_access_token(
     session_id: Optional[str] = None,
     expires_delta: Optional[timedelta] = None,
 ) -> str:
-    expire = datetime.now(timezone.utc) + (
-        expires_delta or timedelta(minutes=config.access_token_expire_minutes)
-    )
+    minutes = config.access_token_expire_minutes
+    if is_admin:
+        minutes = config.effective_admin_access_token_expire_minutes()
+    expire = datetime.now(timezone.utc) + (expires_delta or timedelta(minutes=minutes))
     payload = {
         "sub": user_id,
         "username": username,

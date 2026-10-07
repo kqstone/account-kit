@@ -5,7 +5,7 @@
         <div>
           <h1 class="card-title" style="margin-bottom: 4px">用户管理</h1>
           <p class="card-subtitle" style="margin-bottom: 0">
-            查看并管理系统用户列表，处理新注册审批、启停账号、授权管理员以及重置 2FA。
+            查看并管理系统用户列表，处理新注册审批、启停账号以及重置 2FA。管理员由初始化写入，不能通过接口改 is_admin。
           </p>
         </div>
         <div style="display: flex; gap: 10px">
@@ -104,7 +104,7 @@
               <td style="text-align: right">
                 <div style="display: flex; gap: 6px; justify-content: flex-end; flex-wrap: wrap">
                   <!-- 审批操作 -->
-                  <template v-if="user.approval_status === 'pending'">
+                  <template v-if="!user.is_admin && user.approval_status === 'pending'">
                     <button
                       type="button"
                       class="btn btn-sm"
@@ -123,7 +123,7 @@
                       拒绝
                     </button>
                   </template>
-                  <template v-else-if="user.approval_status === 'rejected'">
+                  <template v-else-if="!user.is_admin && user.approval_status === 'rejected'">
                     <button
                       type="button"
                       class="btn btn-sm"
@@ -136,22 +136,13 @@
 
                   <!-- 启停状态 -->
                   <button
+                    v-if="!user.is_admin"
                     type="button"
                     class="btn btn-secondary btn-sm"
                     :disabled="operatingId === user.id"
                     @click="toggleActive(user)"
                   >
                     {{ user.is_active ? '停用' : '启用' }}
-                  </button>
-
-                  <!-- 管理员切换 -->
-                  <button
-                    type="button"
-                    class="btn btn-secondary btn-sm"
-                    :disabled="operatingId === user.id"
-                    @click="toggleAdmin(user)"
-                  >
-                    {{ user.is_admin ? '降权' : '设管理员' }}
                   </button>
 
                   <!-- 重置 2FA -->
@@ -167,6 +158,7 @@
 
                   <!-- 删除 -->
                   <button
+                    v-if="!user.is_admin"
                     type="button"
                     class="btn btn-danger-outline btn-sm"
                     :disabled="operatingId === user.id"
@@ -191,7 +183,6 @@ import {
   patchAdminUser,
   resetAdminUser2fa,
   deleteAdminUser,
-  currentUser,
 } from "../api"
 import type { AccountUser } from "@kqstone/account-ui-vue"
 
@@ -260,28 +251,6 @@ async function toggleActive(user: AccountUser) {
     successMsg.value = `用户 ${user.username} 已${nextActive ? '启用' : '停用'}`
   } catch (err: any) {
     error.value = err.message || "更新用户状态失败"
-  } finally {
-    operatingId.value = null
-  }
-}
-
-async function toggleAdmin(user: AccountUser) {
-  if (user.id === currentUser.value?.id && user.is_admin) {
-    if (!confirm("注意：取消自己的管理员权限后，您将无法再次进入后台。确定继续？")) {
-      return
-    }
-  }
-  error.value = ""
-  successMsg.value = ""
-  operatingId.value = user.id
-  try {
-    const nextAdmin = !user.is_admin
-    const updated = await patchAdminUser(user.id, { is_admin: nextAdmin })
-    const idx = users.value.findIndex((u) => u.id === user.id)
-    if (idx !== -1) users.value[idx] = updated
-    successMsg.value = `用户 ${user.username} 管理员权限已${nextAdmin ? '开启' : '取消'}`
-  } catch (err: any) {
-    error.value = err.message || "更新管理员权限失败"
   } finally {
     operatingId.value = null
   }

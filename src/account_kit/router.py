@@ -15,7 +15,7 @@ from account_kit import avatar as avatar_mod
 from account_kit import captcha
 from account_kit.audit import audit, request_ip
 from account_kit.config import get_config
-from account_kit.deps import get_current_user, get_db, user_from_access_token
+from account_kit.deps import get_current_user, get_current_user_allow_query_token, get_db, user_from_access_token
 from account_kit.emailer import send_code_email
 from account_kit.models import RefreshToken, VerificationCode
 from account_kit.otp import (
@@ -60,12 +60,14 @@ from account_kit.service import (
     email_allowed,
     get_user_by_email,
     get_user_by_id,
+    get_user_by_username,
     login_user_tokens,
     register_user,
     reset_password,
     to_response,
     update_profile,
 )
+from account_kit.lockout import clear_lockout, enforce_not_locked, record_lockout_failure
 from account_kit.state import enforce_limit
 
 router = APIRouter(tags=["auth"])
@@ -165,11 +167,22 @@ async def login(
         await enforce_limit(db, config, f"login:ip:{ip}", config.login_rate_limit_ip, window)
     if name:
         await enforce_limit(db, config, f"login:user:{name.lower()}", config.login_rate_limit_user, window)
+    candidate = await get_user_by_username(db, name) if name else None
+    if candidate is not None and candidate.is_admin and config.admin_login_rate_limit_user:
+        await enforce_limit(
+            db, config, f"login:admin_user:{name.lower()}", config.admin_login_rate_limit_user, window
+        )
     if config.before_login is not None:
         await config.before_login(request, username)
+    await enforce_not_locked(db, config, candidate, name)
     use_captcha = captcha.captcha_enabled(config)
+    admin_always_captcha = bool(
+        use_captcha and config.admin_login_captcha_always and candidate is not None and candidate.is_admin
+    )
     if use_captcha:
-        await captcha.enforce_login_captcha(db, config, ip, name, captcha_id, captcha_code)
+        await captcha.enforce_login_captcha(
+            db, config, ip, name, captcha_id, captcha_code, force=admin_always_captcha
+        )
     try:
         user, body = await login_user_tokens(
             db,
@@ -184,14 +197,24 @@ async def login(
     except HTTPException as exc:
         invalid = exc.status_code == 401 and exc.detail == captcha.INVALID_CREDENTIALS_MESSAGE
         if invalid or exc.status_code == 403:
+            meta = {"username": name[:50], "reason": "invalid_credentials" if invalid else str(exc.detail)[:64]}
+            if config.audit_admin_login:
+                meta["is_admin"] = bool(candidate.is_admin) if candidate is not None else False
             await audit(
                 db,
                 config,
                 audit_mod.LOGIN_FAILED,
+                user_id=candidate.id if candidate is not None else None,
                 request=request,
                 device_name=device_name,
-                meta={"username": name[:50], "reason": "invalid_credentials" if invalid else str(exc.detail)[:64]},
+                meta=meta,
             )
+        if invalid:
+            locked = await record_lockout_failure(db, config, candidate, name)
+            if locked is not None:
+                if use_captcha:
+                    await captcha.record_failure(db, config, ip, name)
+                raise locked from exc
         if use_captcha:
             if invalid:
                 raise await captcha.invalid_credentials(db, config, ip, name, exc.headers) from exc
@@ -200,7 +223,11 @@ async def login(
         raise
     if use_captcha:
         await captcha.clear_failures(db, config, ip, name)
-    await audit(db, config, audit_mod.LOGIN_SUCCESS, user_id=user.id, request=request, device_name=device_name)
+    await clear_lockout(db, config, user, name)
+    success_meta = {"is_admin": bool(user.is_admin)} if config.audit_admin_login else None
+    await audit(
+        db, config, audit_mod.LOGIN_SUCCESS, user_id=user.id, request=request, device_name=device_name, meta=success_meta
+    )
     return TokenResponse(**body)
 
 
@@ -275,6 +302,8 @@ async def refresh_tokens(body: RefreshRequest, request: Request, db: AsyncSessio
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
     if user.approval_status != "approved":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号尚未通过审批")
+    if user.is_admin and config.admin_refresh_disabled:
+        raise refresh_error("REFRESH_INVALID", "登录已失效，请重新登录")
     session_id = None
     if config.session_mode == "single_device":
         if not row.session_id or row.session_id != user.current_session_id:
@@ -616,7 +645,7 @@ async def delete_my_avatar(
 @router.get("/users/{user_id}/avatar")
 async def get_user_avatar(
     user_id: uuid.UUID,
-    _current_user=Depends(get_current_user),
+    _current_user=Depends(get_current_user_allow_query_token),
     db: AsyncSession = Depends(get_db),
 ):
     user = await get_user_by_id(db, user_id)

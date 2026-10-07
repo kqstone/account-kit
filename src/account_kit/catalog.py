@@ -147,13 +147,27 @@ async def set_user_tier(db: AsyncSession, user: User, tier_code: str) -> None:
 
 
 async def apply_admin_user_patch(db, user: User, body) -> User:
+    if body.is_admin is not None:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ADMIN_FLAG_IMMUTABLE", "message": "is_admin 只能由宿主写入，接口不能修改"},
+        )
+    if user.is_admin:
+        if body.is_active is False:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "ADMIN_DEACTIVATE_FORBIDDEN", "message": "不能停用管理员账号"},
+            )
+        if body.approval_status is not None and body.approval_status != "approved":
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "ADMIN_DEACTIVATE_FORBIDDEN", "message": "不能撤销管理员的审批"},
+            )
     if body.role is not None:
         code = assert_role_code(body.role)
         if await db.get(Role, code) is None:
             raise HTTPException(status_code=400, detail="角色不存在")
         user.role = code
-    if body.is_admin is not None:
-        user.is_admin = body.is_admin
     if body.is_active is not None:
         user.is_active = body.is_active
     if body.approval_status is not None:
@@ -162,6 +176,13 @@ async def apply_admin_user_patch(db, user: User, body) -> User:
             user.approved_at = datetime.now(timezone.utc)
     if body.tier_code is not None:
         await set_user_tier(db, user, body.tier_code)
+    losing_access = (body.is_active is False) or (
+        body.approval_status is not None and body.approval_status != "approved"
+    )
+    if losing_access:
+        from account_kit.service import _clear_session
+
+        _clear_session(user)
     await db.commit()
     await db.refresh(user)
     return user

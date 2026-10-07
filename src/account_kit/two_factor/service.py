@@ -27,6 +27,8 @@ def _err(status_code: int, code: str, message: str, **extra) -> HTTPException:
 
 
 def email_factor_available(config: AccountKitConfig, user: User) -> bool:
+    if user.is_admin and config.admin_require_2fa:
+        return False
     return bool(config.two_factor_email_enabled and user.email)
 
 
@@ -117,6 +119,8 @@ async def verify_second_factor(
     if row is None or not row.enabled:
         raise HTTPException(status_code=400, detail="未开启两步验证")
     if email_code and email_purpose and not code and not recovery_code:
+        if user.is_admin and config.admin_require_2fa and email_purpose == PURPOSE_LOGIN_2FA:
+            raise _err(400, "ADMIN_EMAIL_2FA_FORBIDDEN", "管理员不能使用邮箱验证码作为登录第二因素")
         return await consume_email_factor(db, config, user, email_purpose, email_code)
     if code:
         secret = decrypt_secret(row.secret, config.encryption_material())
