@@ -363,7 +363,7 @@ async def _logout_body(request: Request) -> LogoutRequest:
 
 
 async def logout(request: Request, db: AsyncSession = Depends(get_db), token: Optional[str] = Depends(_bearer)):
-    """Superset of the dedd host logout: clears the single-device session when the
+    """Lenient logout: clears the single-device session when the
     access token still owns it, revokes the session's refresh tokens (and the
     given ``refresh_token``'s family), optionally every device. Always 200."""
     from account_kit.tokens import revoke_token_family, revoke_user_tokens

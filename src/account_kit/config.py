@@ -95,7 +95,7 @@ class AccountKitConfig:
     email_template_dir: Optional[str] = None
     # purpose -> template filename (relative, no ``..``). ``{lang}`` is expanded.
     email_template_map: Optional[EmailTemplateMap] = None
-    # POST /change-password: default matches dedd (old/new password, no email code).
+    # POST /change-password: by default only old/new password, no email code.
     # PATCH /me still requires an email code when changing the password.
     change_password_require_email_code: bool = False
     avatar_enabled: bool = False
@@ -121,7 +121,7 @@ class AccountKitConfig:
     # code for that email+purpose is invalidated (the user must request a new one).
     verify_code_max_attempts: int = 5
     # Send limits for emailed codes (send-code, 2FA email, change-email, delete-account).
-    # 0 disables a limit. Names/defaults follow dedd's former auth_send_code_* settings.
+    # 0 disables a limit.
     send_code_rate_limit_ip: int = 10
     send_code_rate_limit_email: int = 5
     send_code_rate_window_seconds: int = 3600
