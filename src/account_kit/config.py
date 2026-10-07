@@ -169,6 +169,25 @@ class AccountKitConfig:
     captcha_ttl_seconds: int = 300
     captcha_length: int = 4
 
+    # --- admin security -------------------------------------------------------
+    # Per-account login lockout. 0 attempts = off. Admin uses the admin_* pair
+    # even when the global lockout is off.
+    login_lockout_attempts: int = 0
+    login_lockout_seconds: int = 900
+    admin_login_lockout_attempts: int = 5
+    admin_login_lockout_seconds: int = 900
+    admin_login_rate_limit_user: int = 0
+    admin_login_captcha_always: bool = False
+    admin_require_2fa: bool = False
+    admin_ip_allowlist: Tuple[str, ...] = ()
+    # None = inherit access_token_expire_minutes.
+    admin_access_token_expire_minutes: Optional[int] = None
+    admin_refresh_disabled: bool = False
+    # None = inherit password_min_length.
+    admin_password_min_length: Optional[int] = None
+    admin_setup_require_password: bool = True
+    audit_admin_login: bool = True
+
     def challenge_ttl(self) -> int:
         return max(30, int(self.two_factor_challenge_ttl_seconds or 300))
 
@@ -183,6 +202,16 @@ class AccountKitConfig:
 
     def encryption_material(self) -> str:
         return self.file_encryption_key or self.secret_key or self.jwt_secret
+
+    def effective_admin_password_min_length(self) -> int:
+        if self.admin_password_min_length is None:
+            return int(self.password_min_length)
+        return int(self.admin_password_min_length)
+
+    def effective_admin_access_token_expire_minutes(self) -> int:
+        if self.admin_access_token_expire_minutes is None:
+            return int(self.access_token_expire_minutes)
+        return int(self.admin_access_token_expire_minutes)
 
 
 _config: Optional[AccountKitConfig] = None

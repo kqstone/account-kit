@@ -1,6 +1,6 @@
 [project]
 name = "account-kit"
-version = "0.2.2"
+version = "0.2.3"
 description = "Shared async account service for FastAPI apps"
 readme = "README.md"
 requires-python = ">=3.9"

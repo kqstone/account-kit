@@ -46,8 +46,13 @@ def assert_username(config: AccountKitConfig, username: str) -> str:
     return name
 
 
-def assert_password(config: AccountKitConfig, password: str) -> None:
-    if password is None or len(password) < config.password_min_length:
+# bcrypt of a random secret; used so missing-user logins still run checkpw.
+_DUMMY_PASSWORD_HASH = "$2b$12$su2Z9bluPGqPCdgq/3EFVODXINcgZvBNMg1bAh9.j6yB9L0MuqoV2"
+
+
+def assert_password(config: AccountKitConfig, password: str, *, admin: bool = False) -> None:
+    minimum = config.effective_admin_password_min_length() if admin else int(config.password_min_length)
+    if password is None or len(password) < minimum:
         raise HTTPException(status_code=400, detail="密码过短")
     if len(password.encode("utf-8")) > 72:
         raise HTTPException(status_code=400, detail="密码过长")
@@ -252,7 +257,9 @@ async def login_user_tokens(
     """Password login. Returns the token body: ``access_token``, ``token_type`` and,
     with ``refresh_token_enabled``, ``refresh_token`` + ``refresh_expires_in``."""
     user = await get_user_by_username(db, (username or "").strip())
-    if not user or not verify_password(password, user.hashed_password):
+    hashed = user.hashed_password if user is not None else _DUMMY_PASSWORD_HASH
+    password_ok = verify_password(password, hashed)
+    if not user or not password_ok:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Incorrect username or password",
@@ -266,7 +273,9 @@ async def login_user_tokens(
     if config.two_factor_enabled and not mfa_satisfied:
         from account_kit.two_factor.service import is_enabled, mfa_required, trusted_device_ok
 
-        if await is_enabled(db, user.id) and not await trusted_device_ok(db, user.id, trusted_device_token):
+        skip_trusted = bool(user.is_admin and config.admin_require_2fa)
+        trusted_ok = False if skip_trusted else await trusted_device_ok(db, user.id, trusted_device_token)
+        if await is_enabled(db, user.id) and not trusted_ok:
             raise await mfa_required(db, user, sanitize_device_name(device_name), config)
 
     return await complete_login_tokens(db, config, user, force=force, device_name=device_name, ip=ip)
@@ -324,7 +333,7 @@ async def complete_login_tokens(
         session_id=session_id,
     )
     body = {"access_token": token, "token_type": "bearer"}
-    if config.refresh_token_enabled:
+    if config.refresh_token_enabled and not (user.is_admin and config.admin_refresh_disabled):
         raw, _row = await issue_refresh_token(
             db, config, user, session_id=session_id, device_name=sanitize_device_name(device_name), ip=ip
         )
@@ -335,9 +344,9 @@ async def complete_login_tokens(
 
 
 async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str, code: str, new_password: str) -> Optional[User]:
-    assert_password(config, new_password)
-    await check_code(db, config, email, "reset_password", code)
     user = await get_user_by_email(db, email)
+    assert_password(config, new_password, admin=bool(user and user.is_admin))
+    await check_code(db, config, email, "reset_password", code)
     if not user:
         raise HTTPException(status_code=404, detail="该邮箱未注册账号")
     user.hashed_password = hash_password(new_password)
@@ -361,7 +370,7 @@ async def change_password(
 ) -> None:
     if not verify_password(old_password, user.hashed_password):
         raise HTTPException(status_code=400, detail="旧密码错误")
-    assert_password(config, new_password)
+    assert_password(config, new_password, admin=bool(user.is_admin))
     if config.change_password_require_email_code:
         await check_code(db, config, user.email, "change_password", code, missing_detail=dict(EMAIL_CODE_REQUIRED))
     user.hashed_password = hash_password(new_password)
@@ -428,7 +437,7 @@ async def update_profile(
     if payload.new_password:
         if not payload.current_password or not verify_password(payload.current_password, user.hashed_password):
             raise HTTPException(status_code=400, detail="当前密码错误")
-        assert_password(config, payload.new_password)
+        assert_password(config, payload.new_password, admin=bool(user.is_admin))
         code_email = email_changed_from or user.email
         await check_code(db, config, code_email, "change_password", payload.code, missing_detail=dict(EMAIL_CODE_REQUIRED))
         user.hashed_password = hash_password(payload.new_password)
@@ -505,6 +514,11 @@ async def delete_user_account(db: AsyncSession, config: AccountKitConfig, user: 
     ``config.user_delete_mode``. Returns the mode used."""
     from account_kit import avatar as avatar_mod
 
+    if user.is_admin:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ADMIN_DELETE_FORBIDDEN", "message": "不能删除管理员账号"},
+        )
     mode = "soft" if (config.user_delete_mode or "hard").lower() == "soft" else "hard"
     if config.on_deleted is not None:
         await config.on_deleted(db, user)

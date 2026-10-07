@@ -45,6 +45,8 @@ async def user_from_access_token(db: AsyncSession, raw: Optional[str]):
         raise credentials
     if not user.is_active:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
+    if user.approval_status != "approved":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号尚未通过审批")
 
     if config.session_mode == "single_device":
         sid = payload.get("sid")
@@ -62,13 +64,43 @@ async def user_from_access_token(db: AsyncSession, raw: Optional[str]):
 
 async def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
+    db: AsyncSession = Depends(get_db),
+):
+    return await user_from_access_token(db, token)
+
+
+async def get_current_user_allow_query_token(
+    token: Optional[str] = Depends(oauth2_scheme),
     query_token: Optional[str] = Query(None, alias="token"),
     db: AsyncSession = Depends(get_db),
 ):
     return await user_from_access_token(db, token or query_token)
 
 
-async def require_admin(current_user=Depends(get_current_user)):
+async def require_admin(
+    request: Request,
+    current_user=Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
     if not current_user.is_admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+    config = get_config()
+    allowlist = tuple(ip for ip in (config.admin_ip_allowlist or ()) if ip)
+    if allowlist:
+        from account_kit.captcha import client_ip
+
+        ip = client_ip(config, request) or ""
+        if ip not in allowlist:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "ADMIN_IP_FORBIDDEN", "message": "当前 IP 不在管理员白名单"},
+            )
+    if config.admin_require_2fa:
+        from account_kit.two_factor.service import is_enabled
+
+        if not await is_enabled(db, current_user.id):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"code": "ADMIN_2FA_REQUIRED", "message": "管理员必须先启用两步验证"},
+            )
     return current_user

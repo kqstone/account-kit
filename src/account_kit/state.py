@@ -135,6 +135,21 @@ async def counter_get(db: AsyncSession, config: AccountKitConfig, key: str) -> i
     return int(value or 0)
 
 
+async def counter_ttl(db: AsyncSession, config: AccountKitConfig, key: str) -> int:
+    key = _key(key)
+    if not config.use_db_state():
+        return memory_counters.ttl(key)
+    result = await db.execute(
+        text(
+            "SELECT GREATEST(0, CEIL(EXTRACT(EPOCH FROM (expires_at - now()))))::int "
+            "FROM auth.rate_limit_counters WHERE key = :key AND expires_at > now()"
+        ),
+        {"key": key},
+    )
+    value = result.scalar()
+    return int(value or 0)
+
+
 async def counter_clear(db: AsyncSession, config: AccountKitConfig, *keys: str) -> None:
     cleaned = [_key(k) for k in keys if k]
     if not cleaned:

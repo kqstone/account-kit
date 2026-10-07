@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, ForeignKey, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.sql import func
 
@@ -43,7 +43,15 @@ class UserTier(Base):
 
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = AUTH
+    __table_args__ = (
+        Index(
+            "uq_users_single_admin",
+            "is_admin",
+            unique=True,
+            postgresql_where=text("is_admin = true"),
+        ),
+        AUTH,
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     username = Column(String(50), unique=True, nullable=False)

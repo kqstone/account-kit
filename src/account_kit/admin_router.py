@@ -191,6 +191,24 @@ async def patch_user(
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if body.is_admin is not None:
+        await audit(
+            db,
+            get_config(),
+            audit_mod.ADMIN_PROTECTED,
+            user_id=user.id,
+            request=request,
+            meta={"admin_id": str(admin.id), "action": "is_admin", "code": "ADMIN_FLAG_IMMUTABLE"},
+        )
+    if user.is_admin and (body.is_active is False or (body.approval_status is not None and body.approval_status != "approved")):
+        await audit(
+            db,
+            get_config(),
+            audit_mod.ADMIN_PROTECTED,
+            user_id=user.id,
+            request=request,
+            meta={"admin_id": str(admin.id), "action": "deactivate", "code": "ADMIN_DEACTIVATE_FORBIDDEN"},
+        )
     tier = await tier_of(db, user.id)
     before = {
         "role": user.role,
@@ -239,6 +257,19 @@ async def delete_user(user_id: str, request: Request, admin=Depends(require_admi
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if user.is_admin:
+        await audit(
+            db,
+            config,
+            audit_mod.ADMIN_PROTECTED,
+            user_id=user.id,
+            request=request,
+            meta={"admin_id": str(admin.id), "action": "delete", "code": "ADMIN_DELETE_FORBIDDEN"},
+        )
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ADMIN_DELETE_FORBIDDEN", "message": "不能删除管理员账号"},
+        )
     target, username, admin_id = user.id, user.username, admin.id
     mode = await delete_user_account(db, config, user)
     await audit(

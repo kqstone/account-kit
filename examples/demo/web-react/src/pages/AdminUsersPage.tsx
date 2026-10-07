@@ -71,23 +71,6 @@ export const AdminUsersPage: React.FC = () => {
     }
   }
 
-  const handleToggleAdmin = async (user: AdminUserItem) => {
-    if (!window.confirm(`确定要${user.is_admin ? '取消' : '授予'} ${user.username} 的管理员权限吗？`)) {
-      return
-    }
-    setBusyId(user.id)
-    try {
-      const nextAdmin = !user.is_admin
-      await adminPatchUser(user.id, { is_admin: nextAdmin })
-      notify('success', `用户 ${user.username} 管理员权限已${nextAdmin ? '开启' : '取消'}`)
-      await loadUsers()
-    } catch (err: unknown) {
-      notify('error', err instanceof Error ? err.message : '操作失败')
-    } finally {
-      setBusyId(null)
-    }
-  }
-
   const handleReset2Fa = async (user: AdminUserItem) => {
     if (!window.confirm(`确定要为用户 ${user.username} 重置两步验证 (2FA) 吗？这将吊销该用户所有刷新令牌。`)) {
       return
@@ -242,7 +225,7 @@ export const AdminUsersPage: React.FC = () => {
                       <td style={{ textAlign: 'right' }}>
                         <div className="demo-action-buttons">
                           {/* Approval Actions */}
-                          {u.approval_status !== 'approved' ? (
+                          {!u.is_admin && u.approval_status !== 'approved' ? (
                             <button
                               type="button"
                               className="demo-btn-action demo-btn-action-green"
@@ -252,7 +235,7 @@ export const AdminUsersPage: React.FC = () => {
                             >
                               通过
                             </button>
-                          ) : (
+                          ) : !u.is_admin && u.approval_status === 'approved' ? (
                             <button
                               type="button"
                               className="demo-btn-action"
@@ -262,8 +245,8 @@ export const AdminUsersPage: React.FC = () => {
                             >
                               重设待审
                             </button>
-                          )}
-                          {u.approval_status === 'pending' && (
+                          ) : null}
+                          {!u.is_admin && u.approval_status === 'pending' && (
                             <button
                               type="button"
                               className="demo-btn-action demo-btn-action-red"
@@ -275,25 +258,16 @@ export const AdminUsersPage: React.FC = () => {
                             </button>
                           )}
 
-                          {/* Active / Inactive */}
-                          <button
-                            type="button"
-                            className="demo-btn-action"
-                            disabled={isBusy}
-                            onClick={() => handleToggleActive(u)}
-                          >
-                            {u.is_active ? '禁用' : '启用'}
-                          </button>
-
-                          {/* Admin toggle */}
-                          <button
-                            type="button"
-                            className="demo-btn-action"
-                            disabled={isBusy}
-                            onClick={() => handleToggleAdmin(u)}
-                          >
-                            {u.is_admin ? '撤销管理' : '设管理员'}
-                          </button>
+                          {!u.is_admin && (
+                            <button
+                              type="button"
+                              className="demo-btn-action"
+                              disabled={isBusy}
+                              onClick={() => handleToggleActive(u)}
+                            >
+                              {u.is_active ? '禁用' : '启用'}
+                            </button>
+                          )}
 
                           {/* Reset 2FA */}
                           <button
@@ -306,16 +280,17 @@ export const AdminUsersPage: React.FC = () => {
                             重置 2FA
                           </button>
 
-                          {/* Delete */}
-                          <button
-                            type="button"
-                            className="demo-btn-action demo-btn-action-red"
-                            disabled={isBusy}
-                            onClick={() => handleDeleteUser(u)}
-                            title="删除该用户"
-                          >
-                            删除
-                          </button>
+                          {!u.is_admin && (
+                            <button
+                              type="button"
+                              className="demo-btn-action demo-btn-action-red"
+                              disabled={isBusy}
+                              onClick={() => handleDeleteUser(u)}
+                              title="删除该用户"
+                            >
+                              删除
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>

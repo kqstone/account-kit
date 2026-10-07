@@ -114,9 +114,17 @@ async def setup(
     db: AsyncSession = Depends(get_db),
 ):
     _require_feature()
-    if body and body.password:
-        _require_password(current_user, body.password)
-    return await start_setup(db, get_config(), current_user)
+    config = get_config()
+    password = body.password if body else None
+    require_pw = bool(password) or (config.admin_setup_require_password and current_user.is_admin)
+    if require_pw:
+        if not password:
+            raise HTTPException(
+                status_code=400,
+                detail={"code": "PASSWORD_REQUIRED", "message": "管理员开启两步验证需要当前密码"},
+            )
+        _require_password(current_user, password)
+    return await start_setup(db, config, current_user)
 
 
 @router.post("/2fa/enable")
@@ -257,6 +265,9 @@ async def login_second_factor(
         ip=request_ip(config, request),
     )
     await discard_challenge(db, config, challenge_token)
+    meta = {"two_factor_method": item.method}
+    if config.audit_admin_login:
+        meta["is_admin"] = bool(user.is_admin)
     await audit(
         db,
         config,
@@ -264,7 +275,7 @@ async def login_second_factor(
         user_id=user.id,
         request=request,
         device_name=device_name or item.device_name,
-        meta={"two_factor_method": item.method},
+        meta=meta,
     )
     body = {**body, "two_factor_method": item.method}
     if trust_device:
@@ -287,6 +298,11 @@ async def login_email_send(
     already verified); 2FA stays enabled. Submit it as ``email_code`` to /login/2fa."""
     _require_email_feature()
     item, user = await _load_challenge(db, body.challenge_token)
+    if user.is_admin and get_config().admin_require_2fa:
+        raise HTTPException(
+            status_code=400,
+            detail={"code": "ADMIN_EMAIL_2FA_FORBIDDEN", "message": "管理员不能使用邮箱验证码作为登录第二因素"},
+        )
     if item.passed:
         raise HTTPException(status_code=400, detail={"code": "MFA_ALREADY_VERIFIED", "message": "已完成验证"})
     await _before_two_factor(request, user)

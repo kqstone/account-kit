@@ -23,6 +23,15 @@ def bearer(body_or_token):
     return {"Authorization": f"Bearer {token}"}
 
 
+async def make_admin(api, username="admin1"):
+    user, body = await approved_user(api, username)
+    async with api["sessions"]() as db:
+        row = await db.get(User, user["id"])
+        row.is_admin = True
+        await db.commit()
+    return user, bearer(body)
+
+
 async def audit_events(api, user_id=None):
     from sqlalchemy import select
 

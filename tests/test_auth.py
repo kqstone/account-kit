@@ -74,7 +74,7 @@ async def test_admin_is_a_flag_not_a_role(api):
 
     patched = await api["client"].patch(
         f"/api/admin/account/users/{user['id']}",
-        json={"role": "doctor", "is_admin": True, "tier_code": "pro"},
+        json={"role": "doctor", "tier_code": "pro"},
         headers=headers,
     )
     assert patched.status_code == 200, patched.text

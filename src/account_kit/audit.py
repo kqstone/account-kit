@@ -36,6 +36,7 @@ ADMIN_USER_DELETED = "admin_user_deleted"
 ADMIN_ROLE_CHANGED = "admin_role_changed"
 ADMIN_TIER_CHANGED = "admin_tier_changed"
 ROLE_CHANGE_REVIEWED = "role_change_reviewed"
+ADMIN_PROTECTED = "admin_protected"
 
 
 def request_ip(config: AccountKitConfig, request) -> str:

@@ -143,10 +143,20 @@ async def _verify(db, config: AccountKitConfig, captcha_id: str, captcha_code: s
 
 
 async def enforce_login_captcha(
-    db, config: AccountKitConfig, ip: str, username: str, captcha_id: str, captcha_code: str
+    db,
+    config: AccountKitConfig,
+    ip: str,
+    username: str,
+    captcha_id: str,
+    captcha_code: str,
+    *,
+    force: bool = False,
 ) -> None:
-    """428 CAPTCHA_REQUIRED / 400 CAPTCHA_INVALID once the failure threshold is reached."""
-    if not await requires_captcha(db, config, ip, username):
+    """428 CAPTCHA_REQUIRED / 400 CAPTCHA_INVALID once the failure threshold is reached.
+
+    ``force=True`` requires a captcha even below the failure threshold (admin always-on).
+    """
+    if not force and not await requires_captcha(db, config, ip, username):
         return
     if not captcha_id or not captcha_code:
         raise HTTPException(

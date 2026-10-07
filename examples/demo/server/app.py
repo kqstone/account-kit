@@ -7,7 +7,6 @@ import json
 import os
 import secrets
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import quote_plus
@@ -21,13 +20,9 @@ from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from starlette.types import ASGIApp, Receive, Scope, Send
 
-from account_kit import init_db, mount_account, seed_defaults
+from account_kit import ensure_admin, init_db, mount_account, seed_defaults
+from account_kit.admin_setup import AdminSetupError
 from account_kit.config import AccountKitConfig, SmtpConfig
-from account_kit.models import User, UserTierAssignment
-from account_kit.otp import normalize_email
-from account_kit.security import hash_password
-from account_kit.seed import default_role, default_tier
-from account_kit.service import get_user_by_email, get_user_by_username
 
 from .mailer import Outbox, make_mailer
 
@@ -237,6 +232,8 @@ def build_kit_config(runtime: Runtime) -> AccountKitConfig:
         change_email_require_password=True,
         change_password_require_email_code=False,
         mailer=runtime.mailer,
+        admin_login_lockout_attempts=5,
+        admin_login_lockout_seconds=900,
         smtp=SmtpConfig(
             host=smtp_raw.get("host") or "",
             port=int(smtp_raw.get("port") or 587),
@@ -248,47 +245,10 @@ def build_kit_config(runtime: Runtime) -> AccountKitConfig:
     )
 
 
-async def ensure_admin(session, username: str, email: str, password: str) -> User:
-    from account_kit.service import assert_password, assert_username
-
-    cfg = AccountKitConfig(jwt_secret="setup")
-    name = assert_username(cfg, username)
-    assert_password(cfg, password)
-    existing = await get_user_by_username(session, name)
-    if existing is not None:
-        existing.is_admin = True
-        existing.is_active = True
-        existing.approval_status = "approved"
-        existing.hashed_password = hash_password(password)
-        if existing.approved_at is None:
-            existing.approved_at = datetime.now(timezone.utc)
-        await session.commit()
-        return existing
-    taken = await get_user_by_email(session, email)
-    if taken is not None:
-        raise HTTPException(status_code=400, detail="管理员邮箱已被占用")
-    role = await default_role(session)
-    user = User(
-        username=name,
-        email=normalize_email(email),
-        hashed_password=hash_password(password),
-        role=role.code,
-        is_admin=True,
-        is_active=True,
-        approval_status="approved",
-        approved_at=datetime.now(timezone.utc),
-    )
-    session.add(user)
-    await session.flush()
-    tier = await default_tier(session)
-    session.add(UserTierAssignment(user_id=user.id, tier_code=tier.code))
-    await session.commit()
-    return user
-
-
 async def activate(runtime: Runtime, admin: Optional[AdminBody] = None) -> None:
     if runtime.data is None:
         raise RuntimeError("missing demo config")
+    kit_config = build_kit_config(runtime)
     engine = create_async_engine(database_url(runtime.data["db"]), pool_pre_ping=True)
     try:
         await init_db(engine)
@@ -296,14 +256,19 @@ async def activate(runtime: Runtime, admin: Optional[AdminBody] = None) -> None:
         async with sessions() as session:
             await seed_defaults(session)
             if admin is not None:
-                await ensure_admin(session, admin.username, admin.email, admin.password)
+                try:
+                    await ensure_admin(
+                        session, admin.username, admin.email, admin.password, config=kit_config
+                    )
+                except AdminSetupError as exc:
+                    raise exc.http() from exc
 
         async def get_db():
             async with sessions() as session:
                 yield session
 
         kit = FastAPI(title="account-kit", docs_url=None, redoc_url=None, openapi_url=None)
-        mount_account(kit, get_db, build_kit_config(runtime))
+        mount_account(kit, get_db, kit_config)
     except Exception:
         await engine.dispose()
         raise
