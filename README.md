@@ -148,6 +148,14 @@ cd packages/account-ui-vue && npm ci     # 或 packages/account-ui-react
 
 日后若改发 npmjs.com：把 `publishConfig.registry` 改回默认、workflow 改为 `registry.npmjs.org` + `NPM_TOKEN`（或 npm trusted publishing），并更新本节安装说明。
 
+## 示例
+
+`examples/demo/`：可初始化的 FastAPI 宿主（无 Docker）。先 setup 向导再挂本包；Vue / React 前端目录见该处。使用说明与截图：[examples/demo/README.md](examples/demo/README.md)；接口契约：[examples/demo/API.md](examples/demo/API.md)。
+
+```bash
+cd examples/demo && ./run.sh vue
+```
+
 ## 许可证
 
 MIT
