@@ -1,0 +1,3 @@
+.venv/
+server/.demo-config.json
+server/.demo-config.json.tmp
