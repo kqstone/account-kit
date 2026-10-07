@@ -1,6 +1,6 @@
 [project]
 name = "account-kit"
-version = "0.2.2"
+version = "0.2.3"
 description = "Reusable async account/auth service for FastAPI + PostgreSQL"
 readme = "README.md"
 requires-python = ">=3.9"
