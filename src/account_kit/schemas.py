@@ -42,7 +42,7 @@ class RegisterRequest(BaseModel):
     gender: Optional[UserGender] = None
     birth_year_month: Optional[str] = None
     role: Optional[str] = None
-    # Host-only. account-kit does not store consent; dedd reads it in on_registered.
+    # Host-only. account-kit does not store consent; the host app reads it in on_registered.
     doctor_consent_version: Optional[str] = None
 
     @field_validator("birth_year_month", mode="before")
