@@ -1,14 +1,14 @@
 <template>
   <div class="auth-card">
     <div class="auth-header">
-      <h1 class="auth-title">登录账号</h1>
-      <p class="auth-desc">输入用户名与密码登录 account-kit 演示系统</p>
+      <h1 class="auth-title">{{ tt.loginTitle }}</h1>
+      <p class="auth-desc">{{ tt.loginDesc }}</p>
     </div>
 
     <div class="outbox-hint-banner">
-      <span>📬 如果账号开启了邮箱 2FA，请在信箱获取验证码</span>
+      <span>📬 {{ tt.loginHint }}</span>
       <button type="button" class="btn btn-secondary btn-sm" @click="openDrawer">
-        查看信箱
+        {{ tt.viewMailbox }}
       </button>
     </div>
 
@@ -25,9 +25,9 @@
     />
 
     <div class="auth-footer">
-      <router-link to="/register">注册新账号</router-link>
+      <router-link to="/register">{{ tt.registerLink }}</router-link>
       <span>·</span>
-      <router-link to="/reset">忘记密码？</router-link>
+      <router-link to="/reset">{{ tt.forgot }}</router-link>
     </div>
 
     <TwoFactorLoginDialog
@@ -36,7 +36,6 @@
       :challenge="mfaChallenge"
       :scope="mfaScope"
       :device-name="deviceName"
-      language="zh"
       @success="handleMfaSuccess"
       @cancel="showMfaDialog = false"
       @expired="handleMfaExpired"
@@ -61,6 +60,7 @@ import {
   refreshCurrentUser,
   outboxDrawerOpen,
 } from "../api"
+import { tt } from "../i18n"
 
 const router = useRouter()
 const route = useRoute()

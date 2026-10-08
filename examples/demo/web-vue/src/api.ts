@@ -7,11 +7,13 @@ import {
   type TokenPair,
   type TokenStore,
 } from "@kqstone/account-ui-vue"
+import { demoLocale } from "./i18n"
 
 export const tokenStore: TokenStore = createTokenStore("account-kit:tokens")
 
 export const client: AccountClient = createAccountClient("/api/auth", {
   getToken: tokenStore.getAccessToken,
+  getLocale: () => demoLocale.value,
   logoutPath: "/logout",
   autoRefresh: {
     getRefreshToken: tokenStore.getRefreshToken,

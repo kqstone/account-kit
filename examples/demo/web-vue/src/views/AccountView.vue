@@ -33,7 +33,7 @@
           :client="client"
           :token="token"
           :refresh-token="refreshToken"
-          language="zh"
+          
           @done="handleLogoutDone"
         />
         <LogoutButton
@@ -41,7 +41,7 @@
           :token="token"
           :refresh-token="refreshToken"
           :all-devices="true"
-          language="zh"
+          
           @done="handleLogoutDone"
         >
           全部设备登出
@@ -104,7 +104,7 @@
         :client="client"
         :token="token"
         :user="currentUser"
-        language="zh"
+        
         password-email-code="auto"
         @saved="handleProfileSaved"
         @password-changed="handlePasswordChanged"
@@ -131,7 +131,7 @@
         :token="token"
         :user="currentUser"
         :require-password="true"
-        language="zh"
+        
         @changed="handleEmailChanged"
       />
     </div>
@@ -155,7 +155,7 @@
         :client="client"
         :token="token"
         :username="currentUser.username"
-        language="zh"
+        
         @updated="handleTwoFactorUpdated"
       />
     </div>
@@ -184,7 +184,7 @@
           :token="token"
           :two-factor-enabled="tfStatus?.enabled || false"
           :email-code-available="tfStatus?.email_available || false"
-          language="zh"
+          
           @deleted="handleAccountDeleted"
         />
       </template>

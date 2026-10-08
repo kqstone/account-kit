@@ -70,7 +70,7 @@ export const AccountPage: React.FC = () => {
             token={token}
             user={user}
             size={72}
-            language="zh"
+            
             onUploaded={handleUserUpdated}
             onDeleted={handleUserUpdated}
           />
@@ -155,7 +155,7 @@ export const AccountPage: React.FC = () => {
                 client={accountClient}
                 token={token}
                 user={user}
-                language="zh"
+                
                 passwordEmailCode="auto"
                 onSaved={(res) => handleUserUpdated(res.user)}
                 onPasswordChanged={() => {
@@ -177,7 +177,7 @@ export const AccountPage: React.FC = () => {
                 token={token}
                 user={user}
                 requirePassword={true}
-                language="zh"
+                
                 onChanged={handleUserUpdated}
               />
             </div>
@@ -193,7 +193,7 @@ export const AccountPage: React.FC = () => {
                 client={accountClient}
                 token={token}
                 username={user.username}
-                language="zh"
+                
                 renderQr={renderQr}
                 onUpdated={(status) => setTwoFactorStatus(status)}
               />
@@ -247,7 +247,7 @@ export const AccountPage: React.FC = () => {
                       token={token}
                       twoFactorEnabled={twoFactorStatus?.enabled ?? false}
                       emailCodeAvailable={twoFactorStatus?.email_available ?? false}
-                      language="zh"
+                      
                       onDeleted={handleLogoutDone}
                     />
                   </div>
