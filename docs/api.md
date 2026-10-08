@@ -459,15 +459,15 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `REFRESH_REUSED` | 401 | dict | | 检测到登录凭证被重复使用，已强制下线，请重新登录 | A refresh token was reused; you have been signed out. Please sign in again |
 | `ADMIN_DELETE_FORBIDDEN` | 400 | dict | | 不能删除管理员账号 | Cannot delete an admin account |
 | `ADMIN_SELF_DELETE_FORBIDDEN` | 400 | dict | | 管理员账号不能自助注销 | Admin accounts cannot delete themselves |
-| `ADMIN_FLAG_IMMUTABLE` | 400 | dict | | is_admin 只能由宿主写入，接口不能修改 | is_admin can only be written by the host, not this API |
+| `ADMIN_FLAG_IMMUTABLE` | 400 | dict | | 管理员标记只能由宿主写入，接口不能修改 | is_admin can only be written by the host, not this API |
 | `ADMIN_DEACTIVATE_FORBIDDEN` | 400 | dict | | 不能停用管理员账号 | Cannot deactivate an admin account |
-| `ADMIN_IP_FORBIDDEN` | 403 | string | | 当前 IP 不在管理员白名单 | This IP is not on the admin allowlist |
+| `ADMIN_IP_FORBIDDEN` | 403 | string | | 当前网络地址不在管理员白名单 | This IP is not on the admin allowlist |
 | `ADMIN_2FA_REQUIRED` | 403 | string | | 管理员必须先启用两步验证 | Admins must enable two-factor authentication first |
 | `ADMIN_EMAIL_2FA_FORBIDDEN` | 400 | dict | | 管理员不能使用邮箱验证码作为登录第二因素 | Admins cannot use an email code as the login second factor |
 | `ADMIN_ALREADY_EXISTS` | 400 | dict | | 已存在管理员账号 | An admin account already exists |
 | `ADMIN_USERNAME_TAKEN` | 400 | dict | | 该用户名已存在且不是管理员，拒绝接管 | This username exists and is not admin; takeover refused |
 | `ADMIN_EMAIL_TAKEN` | 400 | dict | | 该邮箱已被占用 | This email is already in use |
-| `ROLE_RESERVED` | 400 | string | | admin 不是角色，请使用后台权限标记 | admin is not a role; use the backend admin flag |
+| `ROLE_RESERVED` | 400 | string | | “管理员”不是角色，请使用后台管理员标记 | admin is not a role; use the backend admin flag |
 | `ROLE_CODE_TOO_LONG` | 400 | string | | 角色代码过长 | Role code is too long |
 | `ROLE_INVALID` | 400 | string | | 角色无效 | Invalid role |
 | `ROLE_EXISTS` | 409 | string | | 角色已存在 | Role already exists |
@@ -485,7 +485,7 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `TIER_DEFAULT_DELETE` | 400 | string | | 不能删除默认等级 | Cannot delete the default tier |
 | `TIER_IN_USE` | 409 | string | | 仍有用户属于该等级 | The tier is still assigned to users |
 | `USER_NOT_FOUND` | 404 | string | | 用户不存在 | User not found |
-| `USER_ID_INVALID` | 400 | string | | user_id 无效 | Invalid user_id |
+| `USER_ID_INVALID` | 400 | string | | 用户编号无效 | Invalid user_id |
 | `STATUS_INVALID` | 400 | string | | 状态无效 | Invalid status |
 | `GENDER_INVALID` | 400 | string | | 性别无效 | Invalid gender |
 | `BIRTH_FORMAT_INVALID` | 400 / 422 | string | 422 来自 pydantic 校验 | 出生年月格式无效 | Invalid birth year-month format |

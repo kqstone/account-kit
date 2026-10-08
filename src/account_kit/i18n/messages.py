@@ -62,7 +62,7 @@ _ZH_CN: Dict[str, str] = {
     "CAPTCHA_DEPENDENCY_MISSING": '图形验证码需要 Pillow：pip install "account-kit[captcha]"',
     "VALIDATION_ERROR": "请求参数无效",
     # --- roles / tiers -------------------------------------------------------
-    "ROLE_RESERVED": "admin 不是角色，请使用后台权限标记",
+    "ROLE_RESERVED": "“管理员”不是角色，请使用后台管理员标记",
     "ROLE_CODE_TOO_LONG": "角色代码过长",
     "ROLE_INVALID": "角色无效",
     "ROLE_EXISTS": "角色已存在",
@@ -80,7 +80,7 @@ _ZH_CN: Dict[str, str] = {
     "TIER_DEFAULT_DELETE": "不能删除默认等级",
     "TIER_IN_USE": "仍有用户属于该等级",
     "USER_NOT_FOUND": "用户不存在",
-    "USER_ID_INVALID": "user_id 无效",
+    "USER_ID_INVALID": "用户编号无效",
     "STATUS_INVALID": "状态无效",
     # --- profile / avatar / gender / birth -----------------------------------
     "GENDER_INVALID": "性别无效",
@@ -112,10 +112,10 @@ _ZH_CN: Dict[str, str] = {
     # --- admin protection / setup --------------------------------------------
     "ADMIN_DELETE_FORBIDDEN": "不能删除管理员账号",
     "ADMIN_SELF_DELETE_FORBIDDEN": "管理员账号不能自助注销",
-    "ADMIN_FLAG_IMMUTABLE": "is_admin 只能由宿主写入，接口不能修改",
+    "ADMIN_FLAG_IMMUTABLE": "管理员标记只能由宿主写入，接口不能修改",
     "ADMIN_DEACTIVATE_FORBIDDEN": "不能停用管理员账号",
     "ADMIN_DEACTIVATE_FORBIDDEN_APPROVAL": "不能撤销管理员的审批",
-    "ADMIN_IP_FORBIDDEN": "当前 IP 不在管理员白名单",
+    "ADMIN_IP_FORBIDDEN": "当前网络地址不在管理员白名单",
     "ADMIN_2FA_REQUIRED": "管理员必须先启用两步验证",
     "ADMIN_EMAIL_2FA_FORBIDDEN": "管理员不能使用邮箱验证码作为登录第二因素",
     "ADMIN_ALREADY_EXISTS": "已存在管理员账号",
