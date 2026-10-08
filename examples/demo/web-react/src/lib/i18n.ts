@@ -127,6 +127,7 @@ const zh = {
   // Outbox Drawer & Outbox Page
   outboxTitle: "📬 站内信箱",
   outboxRecordCount: "{count} 条记录",
+  recordCount: "{count} 条记录",
   outboxItemsCount: "{count} 条",
   outboxDrawerTip: "💡 本地演示模式（console 邮件）下，所有验证码均在内存信箱中查看，点击下方验证码即可一键复制。",
   outboxEmptyDrawer: "信箱暂无验证码记录",
@@ -535,6 +536,7 @@ const en: Record<keyof typeof zh, string> = {
   // Outbox Drawer & Outbox Page
   outboxTitle: "📬 Outbox",
   outboxRecordCount: "{count} records",
+  recordCount: "{count} records",
   outboxItemsCount: "{count} items",
   outboxDrawerTip: "💡 In local demo mode (console mail), all codes are stored in memory. Click any code below to copy.",
   outboxEmptyDrawer: "No verification codes in outbox",
