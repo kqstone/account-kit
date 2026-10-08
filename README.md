@@ -9,7 +9,7 @@
 
 ---
 
-## 功能列表 (0.2.2)
+## 功能列表 (0.3.0)
 
 - **核心认证**：账号密码注册与登录、邮箱验证码流转、管理员注册审批机制、单设备互踢会话模式 (`single_device`)、自定义业务角色与用户等级目录、后台管理员权限 (`is_admin`) 隔离。
 - **两步验证 (2FA / MFA)**：基于 TOTP 标准的时间戳动态口令、应急备用恢复码、受信设备免验证保持、邮箱验证码作为备用第二因素（用于免验证器登录或紧急解绑）。
@@ -17,6 +17,7 @@
 - **防爆破与频控限流**：验证码输错上限熔断与失效锁定机制，全站验证码发信、密码重置、登录端点 IP 与用户维度的滑动窗口频控。
 - **账号与资料安全**：换绑邮箱强制新邮箱验证码验证、刷新令牌 (Refresh Token) 家族轮换与重放检测惩罚、标准注销登录端点、用户自助注销账号（支持硬删除与脱敏软删除）。
 - **安全审计与扩展**：独立事务记录的关键安全审计日志与后台查询、用户头像管理回调、Jinja2 邮件模板按用途覆盖机制、安全临时状态后端存储（支持跨进程/实例共享的 `db` 模式及单进程 `memory` 模式）。
+- **国际化**：`zh-CN` / `en` 两套目录，默认简体中文；`X-Locale` / 查询参数 / 可选 `Accept-Language`；错误顶层 `code`；Vue/React Provider 与 `getLocale`。详见 [docs/i18n.md](docs/i18n.md)。
 
 ---
 
@@ -129,8 +130,15 @@ mount_account(app, get_db, config)
 | `audit_log_enabled` | `True` | 是否将登录、改密、2FA 变更等敏感事件记入审计日志表 |
 | `api_prefix` | `"/api/auth"` | 用户端与公共端点挂载前缀 |
 | `admin_prefix` | `"/api/admin/account"` | 管理员端点挂载前缀 |
+| `default_locale` | `"zh-CN"` | 默认与回退语言；`X-Locale` / `locale` 查询参数可改为 `en` |
 
-完整的 70+ 项配置与 `SmtpConfig` 详细说明，请参阅完整文档：[docs/configuration.md](docs/configuration.md)。
+完整的 70+ 项配置与 `SmtpConfig` 详细说明，请参阅完整文档：[docs/configuration.md](docs/configuration.md)。国际化设计、错误码表与 UI 接入见 [docs/i18n.md](docs/i18n.md)、[docs/api.md](docs/api.md)、[docs/upgrade.md](docs/upgrade.md)。
+
+---
+
+## 国际化
+
+两套目录：`zh-CN`（默认纯中文）与 `en`。登录失败默认返回 `用户名或密码错误`，并带顶层 `code: "INVALID_CREDENTIALS"`。`SESSION_REPLACED` 不翻译。Vue：`provideAccountI18n` / `accountKitI18n` / `followVueI18n`。React：`AccountKitProvider` / `followI18next`。`createAccountClient({ getLocale })` 自动发送 `X-Locale`。
 
 ---
 
