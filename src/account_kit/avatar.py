@@ -6,17 +6,17 @@ import os
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import HTTPException
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
 from account_kit.config import AccountKitConfig
+from account_kit.i18n import account_error
 
 AVATAR_MAX_BYTES = 2 * 1024 * 1024
 
 
 def require_avatar(config: AccountKitConfig) -> None:
     if not config.avatar_enabled:
-        raise HTTPException(status_code=501, detail="头像功能未启用")
+        raise account_error(501, "AVATAR_DISABLED")
 
 
 def as_response(source: Any, media_type: str):
@@ -24,7 +24,7 @@ def as_response(source: Any, media_type: str):
     if isinstance(source, (str, os.PathLike)):
         path = os.fspath(source)
         if not os.path.isfile(path):
-            raise HTTPException(status_code=404, detail="Avatar not found")
+            raise account_error(404, "AVATAR_NOT_FOUND")
         return FileResponse(path, media_type=media)
     if isinstance(source, (bytes, bytearray, memoryview)):
         return Response(content=bytes(source), media_type=media)
@@ -40,11 +40,11 @@ async def save_avatar(
 ) -> str:
     require_avatar(config)
     if config.avatar_save is None:
-        raise HTTPException(status_code=501, detail="头像存储未配置")
+        raise account_error(501, "AVATAR_STORAGE_UNCONFIGURED")
     if not content:
-        raise HTTPException(status_code=400, detail="请选择头像图片")
+        raise account_error(400, "AVATAR_EMPTY")
     if len(content) > AVATAR_MAX_BYTES:
-        raise HTTPException(status_code=400, detail="头像不能超过 2MB")
+        raise account_error(400, "AVATAR_TOO_LARGE")
     return await config.avatar_save(user_id, content, content_type, filename)
 
 
@@ -61,13 +61,13 @@ async def delete_avatar(config: AccountKitConfig, avatar_path: Optional[str]) ->
 async def serve_avatar(config: AccountKitConfig, avatar_path: Optional[str]):
     require_avatar(config)
     if not avatar_path:
-        raise HTTPException(status_code=404, detail="Avatar not found")
+        raise account_error(404, "AVATAR_NOT_FOUND")
     if config.avatar_open is not None:
         try:
             source, media_type = await config.avatar_open(avatar_path)
         except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="Avatar not found") from exc
+            raise account_error(404, "AVATAR_NOT_FOUND") from exc
         return as_response(source, media_type)
     if os.path.isfile(avatar_path):
         return FileResponse(avatar_path, media_type="image/jpeg")
-    raise HTTPException(status_code=404, detail="Avatar not found")
+    raise account_error(404, "AVATAR_NOT_FOUND")

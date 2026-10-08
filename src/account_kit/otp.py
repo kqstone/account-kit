@@ -6,10 +6,10 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_kit.i18n import account_error
 from account_kit.models import VerificationCode
 
 OTP_PURPOSES = {
@@ -23,8 +23,6 @@ OTP_PURPOSES = {
 }
 OTP_TTL = timedelta(minutes=5)
 OTP_RESEND_WINDOW = timedelta(minutes=5)
-CODE_INVALID_MESSAGE = "验证码错误或已失效"
-CODE_LOCKED_MESSAGE = "验证码错误次数过多，请重新获取验证码"
 
 
 def normalize_email(email: str) -> str:
@@ -68,10 +66,10 @@ async def find_valid_code(db: AsyncSession, secret: str, email: str, purpose: st
 
 async def consume_code(db: AsyncSession, secret: str, email: str, purpose: str, code: Optional[str]):
     if not code:
-        raise HTTPException(status_code=400, detail="验证码错误或已失效")
+        raise account_error(400, "CODE_INVALID")
     row = await find_valid_code(db, secret, email, purpose, code)
     if not row:
-        raise HTTPException(status_code=400, detail="验证码错误或已失效")
+        raise account_error(400, "CODE_INVALID")
     row.used = True
     return row
 
@@ -91,7 +89,7 @@ async def assert_resend_allowed(db: AsyncSession, email: str, purpose: str) -> N
         return
     created = _aware(last.created_at)
     if created and datetime.now(timezone.utc) - created < OTP_RESEND_WINDOW:
-        raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="验证码发送频繁，请稍后再试")
+        raise account_error(429, "EMAIL_CODE_TOO_FREQUENT")
 
 
 async def create_code(
@@ -153,6 +151,7 @@ async def check_code(
     consume: bool = True,
     bind=None,
     missing_detail=None,
+    missing_code: Optional[str] = None,
 ):
     """Validate an emailed code. Each wrong code counts against email+purpose;
     after ``config.verify_code_max_attempts`` wrong codes every outstanding code for
@@ -161,7 +160,15 @@ async def check_code(
 
     value = (code or "").strip()
     if not value:
-        raise HTTPException(status_code=400, detail=missing_detail or CODE_INVALID_MESSAGE)
+        if missing_code:
+            extra = {"email_code_required": True}
+            if isinstance(missing_detail, dict):
+                extra.update({k: v for k, v in missing_detail.items() if k not in ("code", "message")})
+            raise account_error(400, missing_code, extra=extra, as_dict=True)
+        if isinstance(missing_detail, dict) and missing_detail.get("code"):
+            extra = {k: v for k, v in missing_detail.items() if k not in ("code", "message")}
+            raise account_error(400, str(missing_detail["code"]), extra=extra, as_dict=True)
+        raise account_error(400, "CODE_INVALID")
     secret = bound_secret(config.code_secret(), bind)
     row = await find_valid_code(db, secret, email, purpose, value)
     limit = int(config.verify_code_max_attempts or 0)
@@ -175,8 +182,8 @@ async def check_code(
                 from account_kit.audit import CODE_LOCKED, audit
 
                 await audit(db, config, CODE_LOCKED, meta={"email": normalize_email(email), "purpose": purpose})
-                raise HTTPException(status_code=400, detail=CODE_LOCKED_MESSAGE)
-        raise HTTPException(status_code=400, detail=CODE_INVALID_MESSAGE)
+                raise account_error(400, "CODE_LOCKED")
+        raise account_error(400, "CODE_INVALID")
     if limit > 0:
         await counter_clear(db, config, _fail_key(email, purpose))
     if consume:
@@ -208,5 +215,9 @@ async def guard_send(db: AsyncSession, config, request, email: str, purpose: str
     window = int(config.send_code_rate_window_seconds or 3600)
     ip = request_ip(config, request)
     if ip:
-        await enforce_limit(db, config, f"send_code:ip:{ip}", config.send_code_rate_limit_ip, window, "验证码发送过于频繁，请稍后再试")
-    await enforce_limit(db, config, f"send_code:email:{email}", config.send_code_rate_limit_email, window, "验证码发送过于频繁，请稍后再试")
+        await enforce_limit(
+            db, config, f"send_code:ip:{ip}", config.send_code_rate_limit_ip, window, message_key="SEND_CODE_RATE_LIMITED"
+        )
+    await enforce_limit(
+        db, config, f"send_code:email:{email}", config.send_code_rate_limit_email, window, message_key="SEND_CODE_RATE_LIMITED"
+    )

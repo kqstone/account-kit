@@ -4,12 +4,13 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import Depends, HTTPException, Query, Request, status
+from fastapi import Depends, Query, Request
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import get_config
+from account_kit.i18n import account_error
 from account_kit.service import get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
@@ -25,11 +26,7 @@ async def get_db(request: Request):
 
 
 async def user_from_access_token(db: AsyncSession, raw: Optional[str]):
-    credentials = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    credentials = account_error(401, "AUTH_INVALID", headers={"WWW-Authenticate": "Bearer"})
     if not raw:
         raise credentials
     config = get_config()
@@ -44,14 +41,14 @@ async def user_from_access_token(db: AsyncSession, raw: Optional[str]):
     if user is None:
         raise credentials
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
+        raise account_error(403, "USER_DISABLED")
     if user.approval_status != "approved":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号尚未通过审批")
+        raise account_error(403, "ACCOUNT_PENDING")
 
     if config.session_mode == "single_device":
         sid = payload.get("sid")
         if not sid or sid != user.current_session_id:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SESSION_REPLACED")
+            raise account_error(401, "SESSION_REPLACED")
         now = datetime.now(timezone.utc)
         last = user.session_last_seen_at
         if last is not None and last.tzinfo is None:
@@ -83,7 +80,7 @@ async def require_admin(
     db: AsyncSession = Depends(get_db),
 ):
     if not current_user.is_admin:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin required")
+        raise account_error(403, "ADMIN_REQUIRED")
     config = get_config()
     allowlist = tuple(ip for ip in (config.admin_ip_allowlist or ()) if ip)
     if allowlist:
@@ -91,16 +88,10 @@ async def require_admin(
 
         ip = client_ip(config, request) or ""
         if ip not in allowlist:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "ADMIN_IP_FORBIDDEN", "message": "当前 IP 不在管理员白名单"},
-            )
+            raise account_error(403, "ADMIN_IP_FORBIDDEN", as_dict=True)
     if config.admin_require_2fa:
         from account_kit.two_factor.service import is_enabled
 
         if not await is_enabled(db, current_user.id):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={"code": "ADMIN_2FA_REQUIRED", "message": "管理员必须先启用两步验证"},
-            )
+            raise account_error(403, "ADMIN_2FA_REQUIRED", as_dict=True)
     return current_user

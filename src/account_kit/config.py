@@ -47,6 +47,8 @@ BeforeAction = Callable[[object, str, Dict[str, Any]], Awaitable[None]]
 # db, event, user_id, meta: called after each audit row is written (or instead, when
 # ``audit_log_enabled`` is False). Never raises into the request.
 AuditHook = Callable[..., Awaitable[None]]
+# request -> locale tag (e.g. cookie / JWT / host i18n). Return None to fall through.
+LocaleResolver = Callable[[object], Optional[str]]
 
 
 @dataclass
@@ -187,6 +189,17 @@ class AccountKitConfig:
     admin_password_min_length: Optional[int] = None
     admin_setup_require_password: bool = True
     audit_admin_login: bool = True
+
+    # --- i18n (0.3.0) ---------------------------------------------------------
+    default_locale: str = "zh-CN"
+    supported_locales: Tuple[str, ...] = ("zh-CN", "en")
+    locale_header: str = "X-Locale"
+    locale_query: str = "locale"
+    negotiate_accept_language: bool = False
+    locale_resolver: Optional[LocaleResolver] = None
+    # locale -> code -> text, deep-merged over the built-in catalog.
+    messages_override: Optional[Dict[str, Dict[str, str]]] = None
+    localize_validation: bool = False
 
     def challenge_ttl(self) -> int:
         return max(30, int(self.two_factor_challenge_ttl_seconds or 300))

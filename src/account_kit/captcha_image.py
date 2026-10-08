@@ -18,7 +18,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple
 
-from fastapi import HTTPException
 from sqlalchemy import text
 
 from account_kit.config import AccountKitConfig
@@ -39,9 +38,9 @@ def render_image(code: str, width: int = 140, height: int = 48) -> str:
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError as exc:  # pragma: no cover - depends on the extra
-        raise HTTPException(
-            status_code=501, detail="图形验证码需要 Pillow：pip install \"account-kit[captcha]\""
-        ) from exc
+        from account_kit.i18n import account_error
+
+        raise account_error(501, "CAPTCHA_DEPENDENCY_MISSING") from exc
     rng = secrets.SystemRandom()
     img = Image.new("RGB", (width, height), color=(40, 40, 40))
     draw = ImageDraw.Draw(img)

@@ -14,12 +14,9 @@ import time
 from collections import defaultdict, deque
 from typing import Deque, Dict, Optional
 
-from fastapi import HTTPException, status
-
 from account_kit.config import AccountKitConfig
+from account_kit.i18n import AccountError, account_error
 from account_kit.state import counter_clear, counter_get, counter_hit
-
-INVALID_CREDENTIALS_MESSAGE = "Incorrect username or password"
 
 
 class LoginFailTracker:
@@ -159,28 +156,27 @@ async def enforce_login_captcha(
     if not force and not await requires_captcha(db, config, ip, username):
         return
     if not captcha_id or not captcha_code:
-        raise HTTPException(
-            status_code=status.HTTP_428_PRECONDITION_REQUIRED,
-            detail={"code": "CAPTCHA_REQUIRED", "message": "需要图形验证码", "captcha_required": True},
+        raise account_error(
+            428,
+            "CAPTCHA_REQUIRED",
+            extra={"captcha_required": True},
         )
     if not await _verify(db, config, captcha_id, captcha_code):
         # A wrong captcha still counts as a failed attempt.
         await record_failure(db, config, ip, username)
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={"code": "CAPTCHA_INVALID", "message": "图形验证码错误或已失效", "captcha_required": True},
+        raise account_error(
+            400,
+            "CAPTCHA_INVALID",
+            extra={"captcha_required": True},
         )
 
 
-async def invalid_credentials(db, config: AccountKitConfig, ip: str, username: str, headers=None) -> HTTPException:
+async def invalid_credentials(db, config: AccountKitConfig, ip: str, username: str, headers=None) -> AccountError:
     """Record a failed password and return the 401 (dict detail with ``captcha_required``)."""
     await record_failure(db, config, ip, username)
-    return HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={
-            "code": "INVALID_CREDENTIALS",
-            "message": INVALID_CREDENTIALS_MESSAGE,
-            "captcha_required": await requires_captcha(db, config, ip, username),
-        },
+    return account_error(
+        401,
+        "INVALID_CREDENTIALS",
+        extra={"captcha_required": await requires_captcha(db, config, ip, username)},
         headers=headers or {"WWW-Authenticate": "Bearer"},
     )

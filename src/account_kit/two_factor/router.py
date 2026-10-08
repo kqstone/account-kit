@@ -8,6 +8,7 @@ from account_kit import audit as audit_mod
 from account_kit.audit import audit, request_ip
 from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_db, require_admin
+from account_kit.i18n import AccountError, account_error, error_code_of
 from account_kit.otp import guard_send
 from account_kit.service import complete_login_tokens, get_user_by_id
 from account_kit.two_factor.challenges import (
@@ -58,15 +59,12 @@ class DisableBody(BaseModel):
 
 
 class EmailCodeBody(BaseModel):
-    language: Optional[str] = "zh"
+    language: Optional[str] = None
 
 
 class ChallengeEmailCodeBody(BaseModel):
     challenge_token: str = Field(..., max_length=256)
-    language: Optional[str] = "zh"
-
-
-CHALLENGE_INVALID = {"code": "MFA_CHALLENGE_INVALID", "message": "登录验证已过期，请重新输入密码登录"}
+    language: Optional[str] = None
 
 
 def _factor(body: DisableBody):
@@ -75,7 +73,7 @@ def _factor(body: DisableBody):
 
 def _require_email_feature() -> None:
     if not get_config().two_factor_email_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise account_error(404, "NOT_FOUND")
 
 
 async def _before_two_factor(request: Request, user) -> None:
@@ -88,17 +86,17 @@ async def _load_challenge(db: AsyncSession, raw: str) -> "tuple[Challenge, objec
     config = get_config()
     item = await load_challenge(db, config, raw)
     if item is None:
-        raise HTTPException(status_code=401, detail=dict(CHALLENGE_INVALID))
+        raise account_error(401, "MFA_CHALLENGE_INVALID", as_dict=True)
     user = await get_user_by_id(db, item.user_id)
     if user is None or item.pw_fp != password_fingerprint(user.hashed_password) or not await is_enabled(db, user.id):
         await discard_challenge(db, config, raw)
-        raise HTTPException(status_code=401, detail=dict(CHALLENGE_INVALID))
+        raise account_error(401, "MFA_CHALLENGE_INVALID", as_dict=True)
     return item, user
 
 
 def _require_feature() -> None:
     if not get_config().two_factor_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise account_error(404, "NOT_FOUND")
 
 
 @router.get("/2fa/status")
@@ -119,10 +117,7 @@ async def setup(
     require_pw = bool(password) or (config.admin_setup_require_password and current_user.is_admin)
     if require_pw:
         if not password:
-            raise HTTPException(
-                status_code=400,
-                detail={"code": "PASSWORD_REQUIRED", "message": "管理员开启两步验证需要当前密码"},
-            )
+            raise account_error(400, "PASSWORD_REQUIRED", as_dict=True)
         _require_password(current_user, password)
     return await start_setup(db, config, current_user)
 
@@ -161,10 +156,10 @@ async def disable_email_code(
     _require_feature()
     _require_email_feature()
     if not await is_enabled(db, current_user.id):
-        raise HTTPException(status_code=400, detail={"code": "TWO_FACTOR_NOT_ENABLED", "message": "两步验证未开启"})
+        raise account_error(400, "TWO_FACTOR_NOT_ENABLED", as_dict=True)
     await _before_two_factor(request, current_user)
     await guard_send(db, get_config(), request, current_user.email, PURPOSE_DISABLE_2FA)
-    return await send_email_code(db, get_config(), current_user, PURPOSE_DISABLE_2FA, body.language or "zh", background_tasks)
+    return await send_email_code(db, get_config(), current_user, PURPOSE_DISABLE_2FA, body.language, background_tasks)
 
 
 @router.post("/2fa/recovery-codes/regenerate")
@@ -189,7 +184,7 @@ async def trusted_devices(current_user=Depends(get_current_user), db: AsyncSessi
 async def revoke_device(device_id: str, current_user=Depends(get_current_user), db: AsyncSession = Depends(get_db)):
     _require_feature()
     if not await revoke_trusted_device(db, current_user.id, device_id):
-        raise HTTPException(status_code=404, detail={"code": "DEVICE_NOT_FOUND", "message": "设备不存在"})
+        raise account_error(404, "DEVICE_NOT_FOUND", as_dict=True)
     return {"status": "success"}
 
 
@@ -220,7 +215,7 @@ async def login_second_factor(
     if not item.passed:
         use_email = bool(email_code) and not code and not recovery_code
         if not code and not recovery_code and not use_email:
-            raise HTTPException(status_code=400, detail={"code": "MFA_CODE_REQUIRED", "message": "请输入验证码"})
+            raise account_error(400, "MFA_CODE_REQUIRED", as_dict=True)
         await _before_two_factor(request, user)
         try:
             item.method = await verify_second_factor(
@@ -233,9 +228,12 @@ async def login_second_factor(
                 email_purpose=PURPOSE_LOGIN_2FA if use_email else "",
             )
         except HTTPException as exc:
-            detail = exc.detail if isinstance(exc.detail, dict) else {"code": "MFA_CODE_INVALID", "message": str(exc.detail)}
-            if detail.get("code") == "EMAIL_UNAVAILABLE":
+            if error_code_of(exc) == "EMAIL_UNAVAILABLE":
                 raise
+            if isinstance(exc.detail, dict):
+                detail = dict(exc.detail)
+            else:
+                detail = {"code": "MFA_CODE_INVALID", "message": str(exc.detail)}
             item.attempts += 1
             left = config.challenge_max_attempts() - item.attempts
             await audit(
@@ -249,11 +247,21 @@ async def login_second_factor(
             )
             if left <= 0:
                 await discard_challenge(db, config, challenge_token)
-                raise HTTPException(
-                    status_code=401, detail={"code": "MFA_TOO_MANY_ATTEMPTS", "message": "验证码错误次数过多，请重新登录"}
-                ) from exc
+                raise account_error(401, "MFA_TOO_MANY_ATTEMPTS", as_dict=True) from exc
             await save_challenge(db, config, challenge_token, item)
-            raise HTTPException(status_code=exc.status_code, detail={**detail, "attempts_left": left}) from exc
+            extra = {k: v for k, v in detail.items() if k not in ("code", "message")}
+            extra["attempts_left"] = left
+            code = str(detail.get("code") or "MFA_CODE_INVALID")
+            if isinstance(exc, AccountError):
+                raise account_error(
+                    exc.status_code,
+                    exc.kit_code,
+                    extra=extra,
+                    as_dict=True,
+                    message_key=exc.message_key,
+                    params=exc.kit_params,
+                ) from exc
+            raise account_error(exc.status_code, code, extra=extra, as_dict=True) from exc
         item.passed = True
         await save_challenge(db, config, challenge_token, item)
     _user, body = await complete_login_tokens(
@@ -299,15 +307,12 @@ async def login_email_send(
     _require_email_feature()
     item, user = await _load_challenge(db, body.challenge_token)
     if user.is_admin and get_config().admin_require_2fa:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "ADMIN_EMAIL_2FA_FORBIDDEN", "message": "管理员不能使用邮箱验证码作为登录第二因素"},
-        )
+        raise account_error(400, "ADMIN_EMAIL_2FA_FORBIDDEN", as_dict=True)
     if item.passed:
-        raise HTTPException(status_code=400, detail={"code": "MFA_ALREADY_VERIFIED", "message": "已完成验证"})
+        raise account_error(400, "MFA_ALREADY_VERIFIED", as_dict=True)
     await _before_two_factor(request, user)
     await guard_send(db, get_config(), request, user.email, PURPOSE_LOGIN_2FA)
-    return await send_email_code(db, get_config(), user, PURPOSE_LOGIN_2FA, body.language or "zh", background_tasks)
+    return await send_email_code(db, get_config(), user, PURPOSE_LOGIN_2FA, body.language, background_tasks)
 
 
 @admin.post("/users/{user_id}/2fa/reset", status_code=204)
@@ -316,7 +321,7 @@ async def reset_user_2fa(
 ):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise account_error(404, "USER_NOT_FOUND")
     target = user.id
     admin_id = admin_user.id
     await admin_reset(db, target, get_config())

@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import AccountKitConfig
+from account_kit.i18n import AccountError, account_error, error_code_of, resolve_email_language, t
 from account_kit.models import TwoFactorRecoveryCode, TrustedDevice, User, UserTwoFactor, VerificationCode
 from account_kit.two_factor.challenges import TTL_SECONDS, challenge_store, create_challenge, discard_user_challenges  # noqa: F401
 from account_kit.two_factor.totp import decrypt_secret, encrypt_secret, generate_secret, match_step, provisioning_uri
@@ -22,8 +23,8 @@ PURPOSE_DISABLE_2FA = "disable_2fa"
 EMAIL_CODE_COOLDOWN = timedelta(seconds=60)
 
 
-def _err(status_code: int, code: str, message: str, **extra) -> HTTPException:
-    return HTTPException(status_code=status_code, detail={"code": code, "message": message, **extra})
+def _err(status_code: int, code: str, message: str = "", **extra) -> AccountError:
+    return account_error(status_code, code, extra=extra or None, as_dict=True)
 
 
 def email_factor_available(config: AccountKitConfig, user: User) -> bool:
@@ -86,10 +87,10 @@ async def enable(db: AsyncSession, config: AccountKitConfig, user: User, code: s
     row = await get_row(db, user.id)
     pending = decrypt_secret(row.pending_secret, config.encryption_material()) if row else None
     if not pending:
-        raise HTTPException(status_code=400, detail="请先开始设置两步验证")
+        raise account_error(400, "TWO_FACTOR_SETUP_REQUIRED")
     step = match_step(pending, code)
     if step is None:
-        raise HTTPException(status_code=400, detail={"code": "MFA_CODE_INVALID", "message": "验证码错误"})
+        raise account_error(400, "MFA_CODE_INVALID", as_dict=True)
     row.secret = row.pending_secret
     row.pending_secret = None
     row.enabled = True
@@ -117,16 +118,16 @@ async def verify_second_factor(
 ) -> str:
     row = await get_row(db, user.id)
     if row is None or not row.enabled:
-        raise HTTPException(status_code=400, detail="未开启两步验证")
+        raise account_error(400, "TWO_FACTOR_NOT_ENABLED")
     if email_code and email_purpose and not code and not recovery_code:
         if user.is_admin and config.admin_require_2fa and email_purpose == PURPOSE_LOGIN_2FA:
-            raise _err(400, "ADMIN_EMAIL_2FA_FORBIDDEN", "管理员不能使用邮箱验证码作为登录第二因素")
+            raise _err(400, "ADMIN_EMAIL_2FA_FORBIDDEN")
         return await consume_email_factor(db, config, user, email_purpose, email_code)
     if code:
         secret = decrypt_secret(row.secret, config.encryption_material())
         step = match_step(secret, code, row.last_step)
         if step is None:
-            raise HTTPException(status_code=400, detail={"code": "MFA_CODE_INVALID", "message": "验证码错误"})
+            raise account_error(400, "MFA_CODE_INVALID", as_dict=True)
         row.last_step = step
         await db.commit()
         return "totp"
@@ -141,28 +142,28 @@ async def verify_second_factor(
         )
         found = result.scalars().first()
         if found is None:
-            raise HTTPException(status_code=400, detail={"code": "MFA_CODE_INVALID", "message": "恢复码错误"})
+            raise account_error(400, "MFA_CODE_INVALID", as_dict=True, message_key="MFA_RECOVERY_INVALID")
         found.used_at = datetime.now(timezone.utc)
         await db.commit()
         return "recovery"
-    raise _err(400, "MFA_CODE_REQUIRED", "请输入验证码")
+    raise _err(400, "MFA_CODE_REQUIRED")
 
 
 async def consume_email_factor(db: AsyncSession, config: AccountKitConfig, user: User, purpose: str, email_code: str) -> str:
     """Single-use check of an emailed 2FA code; marks it used on success."""
     if not config.two_factor_email_enabled:
-        raise _err(400, "EMAIL_UNAVAILABLE", "邮箱验证不可用")
-    from account_kit.otp import CODE_LOCKED_MESSAGE, check_code
+        raise _err(400, "EMAIL_UNAVAILABLE")
+    from account_kit.otp import check_code
 
     value = (email_code or "").strip()
     if not user.email or not value:
-        raise _err(400, "EMAIL_CODE_INVALID", "邮箱验证码错误或已失效")
+        raise _err(400, "EMAIL_CODE_INVALID")
     try:
         await check_code(db, config, user.email, purpose, value)
     except HTTPException as exc:
-        if exc.detail == CODE_LOCKED_MESSAGE:
-            raise _err(400, "EMAIL_CODE_LOCKED", CODE_LOCKED_MESSAGE) from exc
-        raise _err(400, "EMAIL_CODE_INVALID", "邮箱验证码错误或已失效") from exc
+        if error_code_of(exc) == "CODE_LOCKED":
+            raise _err(400, "EMAIL_CODE_LOCKED") from exc
+        raise _err(400, "EMAIL_CODE_INVALID") from exc
     await db.commit()
     return "email"
 
@@ -172,7 +173,7 @@ async def send_email_code(
     config: AccountKitConfig,
     user: User,
     purpose: str,
-    language: str = "zh",
+    language: Optional[str] = None,
     background_tasks=None,
 ) -> dict:
     """Issue a 6-digit code (hashed at rest, 5 min TTL, 60 s cooldown) and email it."""
@@ -180,7 +181,7 @@ async def send_email_code(
     from account_kit.otp import OTP_TTL, create_code, generate_otp, normalize_email
 
     if not user.email:
-        raise _err(400, "EMAIL_UNAVAILABLE", "账号未绑定邮箱")
+        raise account_error(400, "EMAIL_UNAVAILABLE", as_dict=True, message_key="EMAIL_UNAVAILABLE_NO_EMAIL")
     email = normalize_email(user.email)
     result = await db.execute(
         select(VerificationCode)
@@ -192,13 +193,13 @@ async def send_email_code(
     if last is not None and last.created_at is not None:
         created = last.created_at if last.created_at.tzinfo else last.created_at.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - created < EMAIL_CODE_COOLDOWN:
-            raise _err(429, "EMAIL_CODE_TOO_FREQUENT", "验证码发送频繁，请稍后再试")
+            raise _err(429, "EMAIL_CODE_TOO_FREQUENT")
     code = generate_otp()
     await create_code(db, config.code_secret(), email, purpose, code)
     from account_kit.otp import reset_attempts
 
     await reset_attempts(db, config, email, purpose)
-    lang = language if language in ("zh", "en") else "zh"
+    lang = resolve_email_language(language)
     if config.mailer is None and background_tasks is not None:
         background_tasks.add_task(send_code_email, config, email, purpose, code, lang)
     else:
@@ -223,7 +224,7 @@ async def disable(
     from account_kit.security import verify_password
 
     if not verify_password(password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="当前密码错误")
+        raise account_error(400, "PASSWORD_INCORRECT")
     await verify_second_factor(
         db, config, user, code=code, recovery_code=recovery_code, email_code=email_code, email_purpose=PURPOSE_DISABLE_2FA
     )
@@ -308,7 +309,7 @@ def _require_password(user: User, password: str) -> None:
     from account_kit.security import verify_password
 
     if not verify_password(password or "", user.hashed_password):
-        raise HTTPException(status_code=400, detail="当前密码错误")
+        raise account_error(400, "PASSWORD_INCORRECT")
 
 
 async def recovery_codes_remaining(db: AsyncSession, user_id) -> int:
@@ -337,7 +338,7 @@ async def list_trusted_devices(db: AsyncSession, user_id) -> List[TrustedDevice]
 def device_public(dev: TrustedDevice) -> dict:
     return {
         "id": str(dev.id),
-        "device_name": dev.device_name or "未知设备",
+        "device_name": dev.device_name or t("UNKNOWN_DEVICE"),
         "created_at": dev.created_at.isoformat() if dev.created_at else None,
         "last_used_at": dev.last_used_at.isoformat() if dev.last_used_at else None,
         "expires_at": dev.expires_at.isoformat() if dev.expires_at else None,
@@ -368,7 +369,7 @@ async def regenerate_recovery_codes(
 ) -> List[str]:
     _require_password(user, password)
     if not await is_enabled(db, user.id):
-        raise HTTPException(status_code=400, detail="未开启两步验证")
+        raise account_error(400, "TWO_FACTOR_NOT_ENABLED")
     await verify_second_factor(db, config, user, code=code, recovery_code=recovery_code)
     codes = _new_recovery_codes()
     existing = await db.execute(select(TwoFactorRecoveryCode).where(TwoFactorRecoveryCode.user_id == user.id))
@@ -422,14 +423,12 @@ async def mfa_required(
     ttl = config.challenge_ttl() if config is not None else TTL_SECONDS
     token = await create_challenge(db, config, user.id, user.hashed_password, device_name, ttl)
     email_ok = bool(config is not None and email_factor_available(config, user))
-    detail = {
-        "code": "MFA_REQUIRED",
-        "message": "该账号已开启两步验证，请升级客户端",
+    extra = {
         "challenge_token": token,
         "methods": ["totp", "recovery"] + (["email"] if email_ok else []),
         "email_available": email_ok,
         "expires_in": ttl,
     }
     if config is not None:
-        detail["trusted_device_days"] = int(config.trusted_device_days)
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
+        extra["trusted_device_days"] = int(config.trusted_device_days)
+    return account_error(status.HTTP_401_UNAUTHORIZED, "MFA_REQUIRED", extra=extra)
