@@ -7,7 +7,7 @@ import {
   type TokenPair,
   type TokenStore,
 } from "@kqstone/account-ui-vue"
-import { demoLocale } from "./i18n"
+import { demoLocale, messages } from "./i18n"
 
 export const tokenStore: TokenStore = createTokenStore("account-kit:tokens")
 
@@ -50,7 +50,7 @@ export const outboxLoading = ref(false)
 export async function fetchSetupStatus(): Promise<SetupStatus> {
   const res = await fetch("/api/setup/status")
   if (!res.ok) {
-    throw new Error(`获取系统状态失败: HTTP ${res.status}`)
+    throw new Error(`${messages[demoLocale.value].apiFetchSetupFailed}: HTTP ${res.status}`)
   }
   const data: SetupStatus = await res.json()
   setupStatus.value = data
@@ -71,7 +71,7 @@ export async function testDb(payload: {
   })
   const body = await res.json().catch(() => null)
   if (!res.ok) {
-    const msg = body?.detail?.message || (typeof body?.detail === "string" ? body.detail : "数据库连接失败")
+    const msg = body?.detail?.message || (typeof body?.detail === "string" ? body.detail : messages[demoLocale.value].apiDbConnectFailed)
     throw new Error(msg)
   }
   return body
@@ -85,7 +85,7 @@ export async function initSystem(payload: Record<string, any>): Promise<any> {
   })
   const body = await res.json().catch(() => null)
   if (!res.ok) {
-    const msg = body?.detail?.message || (typeof body?.detail === "string" ? body.detail : "系统初始化失败")
+    const msg = body?.detail?.message || (typeof body?.detail === "string" ? body.detail : messages[demoLocale.value].apiInitFailed)
     throw new Error(msg)
   }
   await fetchSetupStatus()
@@ -116,7 +116,7 @@ export async function fetchOutbox(email?: string, purpose?: string): Promise<Out
     if (purpose) params.set("purpose", purpose)
     const qs = params.toString() ? `?${params.toString()}` : ""
     const res = await fetch(`/api/demo/outbox${qs}`)
-    if (!res.ok) throw new Error("获取站内信箱失败")
+    if (!res.ok) throw new Error(messages[demoLocale.value].apiFetchOutboxFailed)
     const data = await res.json()
     outboxItems.value = data.items || []
     return outboxItems.value
@@ -140,7 +140,7 @@ export async function adminFetch<T = any>(path: string, options: RequestInit = {
   if (res.status === 204) return null as T
   const body = await res.json().catch(() => null)
   if (!res.ok) {
-    const msg = body?.detail?.message || (typeof body?.detail === "string" ? body.detail : `请求失败 (${res.status})`)
+    const msg = body?.detail?.message || (typeof body?.detail === "string" ? body.detail : `${messages[demoLocale.value].apiRequestFailed} (${res.status})`)
     throw new Error(msg)
   }
   return body as T
@@ -203,24 +203,26 @@ export async function getAdminAuditLogs(params: {
 }
 
 export function formatPurposeName(purpose: string): string {
+  const m = messages[demoLocale.value]
   const map: Record<string, string> = {
-    register: "注册验证码",
-    reset_password: "重置密码",
-    change_password: "修改密码",
-    change_email: "修改邮箱",
-    login_2fa: "2FA登录",
-    disable_2fa: "关闭2FA",
-    delete_account: "注销账号",
+    register: m.purposeRegister,
+    reset_password: m.purposeResetPassword,
+    change_password: m.purposeChangePassword,
+    change_email: m.purposeChangeEmail,
+    login_2fa: m.purposeLogin2fa,
+    disable_2fa: m.purposeDisable2fa,
+    delete_account: m.purposeDeleteAccount,
   }
   return map[purpose] || purpose
 }
 
-export function formatDateTime(iso: string): string {
+export function formatDateTime(iso: string, loc?: string): string {
   if (!iso) return "-"
   try {
     const d = new Date(iso)
     if (isNaN(d.getTime())) return iso
-    return d.toLocaleString("zh-CN", {
+    const dateLoc = loc || (demoLocale.value === "zh-CN" ? "zh-CN" : "en-US")
+    return d.toLocaleString(dateLoc, {
       hour12: false,
       year: "numeric",
       month: "2-digit",

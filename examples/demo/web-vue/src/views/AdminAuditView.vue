@@ -3,17 +3,17 @@
     <div class="card">
       <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; flex-wrap: wrap; gap: 12px">
         <div>
-          <h1 class="card-title" style="margin-bottom: 4px">审计日志</h1>
+          <h1 class="card-title" style="margin-bottom: 4px">{{ tt.adminAuditHeading }}</h1>
           <p class="card-subtitle" style="margin-bottom: 0">
-            查询系统安全审计日志，包含登录、改密、2FA、令牌刷新与管理员变更等详细记录。
+            {{ tt.adminAuditDesc }}
           </p>
         </div>
         <div style="display: flex; gap: 10px">
           <router-link to="/admin" class="btn btn-secondary">
-            👥 返回用户管理
+            {{ tt.backToUsersBtn }}
           </router-link>
           <button type="button" class="btn btn-secondary" :disabled="loading" @click="loadLogs">
-            {{ loading ? '加载中…' : '🔄 刷新日志' }}
+            {{ loading ? tt.refreshingBtn : tt.refreshLogsBtn }}
           </button>
         </div>
       </div>
@@ -22,11 +22,11 @@
         {{ error }}
       </div>
 
-      <!-- 筛选栏 -->
+      <!-- Filter bar -->
       <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap; align-items: center">
         <div style="flex: 1; min-width: 200px">
           <select v-model="filterEvent" class="form-select" @change="onFilterChange">
-            <option value="">全部事件类型 (All Events)</option>
+            <option value="">{{ tt.allEventsVue }}</option>
             <option v-for="ev in eventOptions" :key="ev.value" :value="ev.value">
               {{ ev.label }} ({{ ev.value }})
             </option>
@@ -37,7 +37,7 @@
           <input
             v-model="filterIp"
             type="text"
-            placeholder="按 IP 过滤…"
+            :placeholder="tt.filterIpPlaceholder"
             class="form-input"
             @keyup.enter="onFilterChange"
           />
@@ -47,39 +47,39 @@
           <input
             v-model="filterUserId"
             type="text"
-            placeholder="按用户 ID 过滤…"
+            :placeholder="tt.filterUserIdPlaceholder"
             class="form-input"
             @keyup.enter="onFilterChange"
           />
         </div>
 
         <button type="button" class="btn btn-primary" :disabled="loading" @click="onFilterChange">
-          查询
+          {{ tt.queryBtn }}
         </button>
       </div>
 
-      <!-- 日志表格 -->
+      <!-- Log table -->
       <div class="table-container">
         <table class="table">
           <thead>
             <tr>
-              <th style="width: 180px">记录时间</th>
-              <th style="width: 160px">事件</th>
-              <th style="width: 150px">用户 ID</th>
-              <th style="width: 130px">客户端 IP</th>
-              <th style="width: 140px">设备信息</th>
-              <th>元数据详情 (Meta)</th>
+              <th style="width: 180px">{{ tt.thRecordedTime }}</th>
+              <th style="width: 160px">{{ tt.thEvent }}</th>
+              <th style="width: 150px">{{ tt.thUserId }}</th>
+              <th style="width: 130px">{{ tt.thClientIp }}</th>
+              <th style="width: 140px">{{ tt.thDeviceInfo }}</th>
+              <th>{{ tt.thMetadata }}</th>
             </tr>
           </thead>
           <tbody>
             <tr v-if="loading && items.length === 0">
               <td colspan="6" style="text-align: center; padding: 30px; color: var(--color-text-muted)">
-                正在加载审计日志…
+                {{ tt.loadingAuditLogs }}
               </td>
             </tr>
             <tr v-else-if="items.length === 0">
               <td colspan="6" style="text-align: center; padding: 30px; color: var(--color-text-muted)">
-                暂无符合条件的审计日志
+                {{ tt.noAuditLogsFound }}
               </td>
             </tr>
             <tr v-for="item in items" :key="item.id">
@@ -111,10 +111,10 @@
         </table>
       </div>
 
-      <!-- 分页控制 -->
+      <!-- Pagination -->
       <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 16px; flex-wrap: wrap; gap: 10px">
         <div style="font-size: 13px; color: var(--color-text-secondary)">
-          共 <strong>{{ total }}</strong> 条记录，当前第 {{ page }} / {{ totalPages }} 页
+          {{ tt.totalRecordsPrefix }} <strong>{{ total }}</strong> {{ tt.recordsCountUnit }}，{{ tt.currentPagePrefix }} {{ page }} / {{ totalPages }}
         </div>
 
         <div style="display: flex; gap: 8px; align-items: center">
@@ -124,10 +124,10 @@
             :disabled="page <= 1 || loading"
             @click="goToPage(page - 1)"
           >
-            上一页
+            {{ tt.prevPageBtn }}
           </button>
           <span style="font-size: 13px; padding: 0 4px">
-            第 {{ page }} 页
+            {{ tt.pageNumber.replace('{page}', String(page)) }}
           </span>
           <button
             type="button"
@@ -135,7 +135,7 @@
             :disabled="page >= totalPages || loading"
             @click="goToPage(page + 1)"
           >
-            下一页
+            {{ tt.nextPageBtn }}
           </button>
         </div>
       </div>
@@ -146,6 +146,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from "vue"
 import { getAdminAuditLogs, formatDateTime, type AuditLogItem } from "../api"
+import { tt } from "../i18n"
 
 const items = ref<AuditLogItem[]>([])
 const total = ref(0)
@@ -160,30 +161,30 @@ const filterUserId = ref("")
 
 const totalPages = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)))
 
-const eventOptions = [
-  { value: "login_success", label: "登录成功" },
-  { value: "login_failed", label: "登录失败" },
-  { value: "login_2fa_failed", label: "2FA 验证失败" },
-  { value: "2fa_enabled", label: "开启 2FA" },
-  { value: "2fa_disabled", label: "关闭 2FA" },
-  { value: "2fa_reset", label: "重置 2FA" },
-  { value: "2fa_recovery_regenerated", label: "重新生成恢复码" },
-  { value: "password_changed", label: "修改密码" },
-  { value: "password_reset", label: "重置密码" },
-  { value: "email_changed", label: "修改邮箱" },
-  { value: "logout", label: "退出登录" },
-  { value: "refresh_reuse_detected", label: "刷新令牌重用检测" },
-  { value: "account_deleted", label: "账号注销" },
-  { value: "verification_code_locked", label: "验证码锁定" },
-  { value: "admin_user_updated", label: "管理员更新用户" },
-  { value: "admin_user_deleted", label: "管理员删除用户" },
-  { value: "admin_role_changed", label: "角色变更" },
-  { value: "admin_tier_changed", label: "等级变更" },
-  { value: "role_change_reviewed", label: "角色申请审核" },
-]
+const eventOptions = computed(() => [
+  { value: "login_success", label: tt.value.audit_login_success },
+  { value: "login_failed", label: tt.value.audit_login_failed },
+  { value: "login_2fa_failed", label: tt.value.audit_login_2fa_failed },
+  { value: "2fa_enabled", label: tt.value.audit_2fa_enabled },
+  { value: "2fa_disabled", label: tt.value.audit_2fa_disabled },
+  { value: "2fa_reset", label: tt.value.audit_2fa_reset },
+  { value: "2fa_recovery_regenerated", label: tt.value.audit_2fa_recovery_regenerated },
+  { value: "password_changed", label: tt.value.audit_password_changed },
+  { value: "password_reset", label: tt.value.audit_password_reset },
+  { value: "email_changed", label: tt.value.audit_email_changed },
+  { value: "logout", label: tt.value.audit_logout },
+  { value: "refresh_reuse_detected", label: tt.value.audit_refresh_reuse_detected },
+  { value: "account_deleted", label: tt.value.audit_account_deleted },
+  { value: "verification_code_locked", label: tt.value.audit_verification_code_locked },
+  { value: "admin_user_updated", label: tt.value.audit_admin_user_updated },
+  { value: "admin_user_deleted", label: tt.value.audit_admin_user_deleted },
+  { value: "admin_role_changed", label: tt.value.audit_admin_role_changed_vue },
+  { value: "admin_tier_changed", label: tt.value.audit_admin_tier_changed_vue },
+  { value: "role_change_reviewed", label: tt.value.audit_role_change_reviewed },
+])
 
 function eventLabel(ev: string): string {
-  const found = eventOptions.find((o) => o.value === ev)
+  const found = eventOptions.value.find((o) => o.value === ev)
   return found ? found.label : ev
 }
 
@@ -214,7 +215,7 @@ async function loadLogs() {
     items.value = res.items || []
     total.value = res.total || 0
   } catch (err: any) {
-    error.value = err.message || "加载审计日志失败"
+    error.value = err.message || tt.value.loadAuditLogsFailed
   } finally {
     loading.value = false
   }

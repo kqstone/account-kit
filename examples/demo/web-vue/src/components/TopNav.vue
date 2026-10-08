@@ -58,7 +58,7 @@
 
         <template v-if="isLoggedIn">
           <span style="font-size: 13px; color: #4b5563; margin-left: 8px">
-            <strong>{{ currentUser?.username || '用户' }}</strong>
+            <strong>{{ currentUser?.username || tt.userFallback }}</strong>
             <span v-if="currentUser?.is_admin" class="badge badge-blue" style="margin-left: 4px">{{ tt.admin }}</span>
           </span>
           <button type="button" class="btn btn-secondary btn-sm" style="margin-left: 6px" @click="handleLogout">

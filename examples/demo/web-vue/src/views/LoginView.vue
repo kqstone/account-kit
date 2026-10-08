@@ -118,6 +118,6 @@ async function handleMfaSuccess(data: LoginSecondFactorResult) {
 
 function handleMfaExpired(message: string) {
   showMfaDialog.value = false
-  loginError.value = message || "两步验证挑战已过期，请重新登录"
+  loginError.value = message || tt.value.mfaExpired
 }
 </script>

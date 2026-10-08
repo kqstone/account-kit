@@ -12,9 +12,9 @@
       </button>
     </div>
 
-    <div v-if="successMsg" class="alert alert-success">
+    <div v-if="isResetSuccess" class="alert alert-success">
       <div>
-        <strong>{{ successMsg }}</strong>
+        <strong>{{ tt.resetOk }}</strong>
         <div style="margin-top: 8px">
           <router-link to="/login" class="btn btn-sm">{{ tt.goLoginBtn }}</router-link>
         </div>
@@ -40,13 +40,13 @@ import { ResetPasswordForm } from "@kqstone/account-ui-vue"
 import { client, outboxDrawerOpen } from "../api"
 import { tt } from "../i18n"
 
-const successMsg = ref("")
+const isResetSuccess = ref(false)
 
 function openDrawer() {
   outboxDrawerOpen.value = true
 }
 
 function handleResetSuccess() {
-  successMsg.value = "密码已成功重置！请使用新密码重新登录。"
+  isResetSuccess.value = true
 }
 </script>

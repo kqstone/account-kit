@@ -35,22 +35,27 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
+import { ref, computed } from "vue"
 import { RegisterForm, type AccountUser } from "@kqstone/account-ui-vue"
 import { client, outboxDrawerOpen } from "../api"
 import { tt } from "../i18n"
 
-const successMsg = ref("")
+const registeredUser = ref<AccountUser | null>(null)
+
+const successMsg = computed(() => {
+  if (!registeredUser.value) return ""
+  const u = registeredUser.value
+  const template = u.approval_status === "pending"
+    ? tt.value.registerSuccessPending
+    : tt.value.registerSuccessDirect
+  return template.replace("{username}", u.username)
+})
 
 function openDrawer() {
   outboxDrawerOpen.value = true
 }
 
 function handleRegisterSuccess(user: AccountUser) {
-  if (user.approval_status === "pending") {
-    successMsg.value = `账号 ${user.username} 注册成功！由于系统开启了管理员审批，请等待管理员通过审批后再登录。`
-  } else {
-    successMsg.value = `账号 ${user.username} 注册成功！现在可以直接使用设置的密码登录。`
-  }
+  registeredUser.value = user
 }
 </script>

@@ -1,18 +1,20 @@
 import React from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
+import { useDemoI18n } from '../lib/i18n'
 
 export const SetupGuard: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const { initialized } = useAuth()
+  const { t } = useDemoI18n()
   const location = useLocation()
 
   if (initialized === null) {
     return (
       <div className="demo-loading-screen">
         <div className="demo-spinner" />
-        <p>检查系统初始化状态…</p>
+        <p>{t.checkInitStatus}</p>
       </div>
     )
   }
@@ -34,6 +36,7 @@ export const RequireAuth: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const { token, loadingUser } = useAuth()
+  const { t } = useDemoI18n()
   const location = useLocation()
 
   if (!token) {
@@ -44,7 +47,7 @@ export const RequireAuth: React.FC<{ children: React.ReactNode }> = ({
     return (
       <div className="demo-loading-screen">
         <div className="demo-spinner" />
-        <p>加载用户信息…</p>
+        <p>{t.loadingUserInfo}</p>
       </div>
     )
   }
@@ -56,6 +59,7 @@ export const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({
   children,
 }) => {
   const { token, user, loadingUser } = useAuth()
+  const { t } = useDemoI18n()
   const location = useLocation()
 
   if (!token) {
@@ -66,7 +70,7 @@ export const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({
     return (
       <div className="demo-loading-screen">
         <div className="demo-spinner" />
-        <p>校验管理员权限…</p>
+        <p>{t.checkingAdminPerm}</p>
       </div>
     )
   }
@@ -75,11 +79,11 @@ export const RequireAdmin: React.FC<{ children: React.ReactNode }> = ({
     return (
       <div className="demo-container">
         <div className="demo-card demo-card-danger">
-          <h2>403 权限不足</h2>
-          <p>当前页面需要管理员权限 (`is_admin: true`)。</p>
+          <h2>{t.forbidden403Title}</h2>
+          <p>{t.forbidden403Desc}</p>
           <div style={{ marginTop: 16 }}>
             <a href="/account" className="ak-btn">
-              返回个人中心
+              {t.backToAccount}
             </a>
           </div>
         </div>

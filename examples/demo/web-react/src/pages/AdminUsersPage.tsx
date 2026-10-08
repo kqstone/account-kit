@@ -8,8 +8,10 @@ import {
 } from '../lib/api'
 import type { AdminUserItem } from '../types'
 import { TierBadge } from '@kqstone/account-ui-react'
+import { useDemoI18n } from '../lib/i18n'
 
 export const AdminUsersPage: React.FC = () => {
+  const { t } = useDemoI18n()
   const [users, setUsers] = useState<AdminUserItem[]>([])
   const [loading, setLoading] = useState(false)
   const [searchTerm, setSearchTerm] = useState('')
@@ -25,12 +27,12 @@ export const AdminUsersPage: React.FC = () => {
       const data = await adminGetUsers()
       setUsers(data)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '加载用户列表失败'
+      const msg = err instanceof Error ? err.message : t.loadUsersFailed
       setActionMessage({ type: 'error', text: msg })
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [t.loadUsersFailed])
 
   useEffect(() => {
     void loadUsers()
@@ -48,10 +50,10 @@ export const AdminUsersPage: React.FC = () => {
     setBusyId(user.id)
     try {
       await adminPatchUser(user.id, { approval_status: status })
-      notify('success', `用户 ${user.username} 审批状态已更新为: ${status}`)
+      notify('success', t.userApprovalStatusUpdated.replace('{username}', user.username).replace('{status}', status))
       await loadUsers()
     } catch (err: unknown) {
-      notify('error', err instanceof Error ? err.message : '操作失败')
+      notify('error', err instanceof Error ? err.message : t.opFailed)
     } finally {
       setBusyId(null)
     }
@@ -62,42 +64,47 @@ export const AdminUsersPage: React.FC = () => {
     try {
       const nextActive = !user.is_active
       await adminPatchUser(user.id, { is_active: nextActive })
-      notify('success', `用户 ${user.username} 已${nextActive ? '启用' : '禁用'}`)
+      notify(
+        'success',
+        t.userStatusUpdated
+          .replace('{username}', user.username)
+          .replace('{action}', nextActive ? t.actionEnabled : t.actionDeactivated)
+      )
       await loadUsers()
     } catch (err: unknown) {
-      notify('error', err instanceof Error ? err.message : '操作失败')
+      notify('error', err instanceof Error ? err.message : t.opFailed)
     } finally {
       setBusyId(null)
     }
   }
 
   const handleReset2Fa = async (user: AdminUserItem) => {
-    if (!window.confirm(`确定要为用户 ${user.username} 重置两步验证 (2FA) 吗？这将吊销该用户所有刷新令牌。`)) {
+    if (!window.confirm(t.confirmReset2faReact.replace('{username}', user.username))) {
       return
     }
     setBusyId(user.id)
     try {
       await adminReset2Fa(user.id)
-      notify('success', `已成功重置 ${user.username} 的两步验证`)
+      notify('success', t.reset2faSuccess.replace('{username}', user.username))
       await loadUsers()
     } catch (err: unknown) {
-      notify('error', err instanceof Error ? err.message : '重置 2FA 失败')
+      notify('error', err instanceof Error ? err.message : t.reset2faFailed)
     } finally {
       setBusyId(null)
     }
   }
 
   const handleDeleteUser = async (user: AdminUserItem) => {
-    if (!window.confirm(`危险操作！确定要删除用户「${user.username}」吗？`)) {
+    if (!window.confirm(t.confirmDeleteUser.replace('{username}', user.username))) {
       return
     }
     setBusyId(user.id)
     try {
       await adminDeleteUser(user.id)
-      notify('success', `用户 ${user.username} 已被删除`)
+      notify('success', t.deleteUserSuccess.replace('{username}', user.username))
       await loadUsers()
     } catch (err: unknown) {
-      notify('error', err instanceof Error ? err.message : '删除用户失败')
+      notify('error', err instanceof Error ? err.message : t.deleteUserFailed)
     } finally {
       setBusyId(null)
     }
@@ -119,10 +126,10 @@ export const AdminUsersPage: React.FC = () => {
       <div className="demo-admin-header">
         <div className="demo-admin-tabs">
           <Link to="/admin" className="demo-admin-tab active">
-            👥 用户管理
+            {t.tabUsersWithIcon}
           </Link>
           <Link to="/admin/audit" className="demo-admin-tab">
-            📋 审计日志
+            {t.tabAuditLogWithIcon}
           </Link>
         </div>
         <button
@@ -131,7 +138,7 @@ export const AdminUsersPage: React.FC = () => {
           onClick={loadUsers}
           disabled={loading}
         >
-          {loading ? '刷新中…' : '刷新列表'}
+          {loading ? t.refreshingBtn : t.refreshListBtn}
         </button>
       </div>
 
@@ -151,29 +158,29 @@ export const AdminUsersPage: React.FC = () => {
           <input
             type="text"
             className="ak-input demo-search-input"
-            placeholder="按用户名 / 邮箱 / 姓名搜索…"
+            placeholder={t.searchUserReactPlaceholder}
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
-          <span className="demo-muted">共 {filteredUsers.length} 位用户</span>
+          <span className="demo-muted">{t.totalUsersCount.replace('{count}', String(filteredUsers.length))}</span>
         </div>
 
         {loading && users.length === 0 ? (
-          <div className="demo-loading-block">正在加载用户列表…</div>
+          <div className="demo-loading-block">{t.loadingUsersBlock}</div>
         ) : filteredUsers.length === 0 ? (
-          <div className="demo-empty">没有匹配的用户记录</div>
+          <div className="demo-empty">{t.noMatchingUsers}</div>
         ) : (
           <div className="demo-table-wrapper">
             <table className="demo-table">
               <thead>
                 <tr>
-                  <th>用户名</th>
-                  <th>邮箱</th>
-                  <th>角色/等级</th>
-                  <th>权限</th>
-                  <th>状态</th>
-                  <th>审批状态</th>
-                  <th style={{ textAlign: 'right' }}>管理操作</th>
+                  <th>{t.thUsername}</th>
+                  <th>{t.thEmail}</th>
+                  <th>{t.thRoleAndTier}</th>
+                  <th>{t.thPermissions}</th>
+                  <th>{t.thStatus}</th>
+                  <th>{t.thApprovalStatus}</th>
+                  <th style={{ textAlign: 'right' }}>{t.thAdminActions}</th>
                 </tr>
               </thead>
               <tbody>
@@ -201,25 +208,25 @@ export const AdminUsersPage: React.FC = () => {
                       </td>
                       <td>
                         {u.is_admin ? (
-                          <span className="demo-tag demo-tag-purple">管理员</span>
+                          <span className="demo-tag demo-tag-purple">{t.roleAdmin}</span>
                         ) : (
-                          <span className="demo-tag demo-tag-gray">普通用户</span>
+                          <span className="demo-tag demo-tag-gray">{t.roleNormal}</span>
                         )}
                       </td>
                       <td>
                         {u.is_active ? (
-                          <span className="demo-tag demo-tag-green">正常</span>
+                          <span className="demo-tag demo-tag-green">{t.statusActive}</span>
                         ) : (
-                          <span className="demo-tag demo-tag-red">已禁用</span>
+                          <span className="demo-tag demo-tag-red">{t.statusDisabled}</span>
                         )}
                       </td>
                       <td>
                         {u.approval_status === 'approved' ? (
-                          <span className="demo-tag demo-tag-green">已通过</span>
+                          <span className="demo-tag demo-tag-green">{t.statusApproved}</span>
                         ) : u.approval_status === 'pending' ? (
-                          <span className="demo-tag demo-tag-orange">待审批</span>
+                          <span className="demo-tag demo-tag-orange">{t.statusPending}</span>
                         ) : (
-                          <span className="demo-tag demo-tag-red">已拒绝</span>
+                          <span className="demo-tag demo-tag-red">{t.statusRejected}</span>
                         )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
@@ -231,9 +238,9 @@ export const AdminUsersPage: React.FC = () => {
                               className="demo-btn-action demo-btn-action-green"
                               disabled={isBusy}
                               onClick={() => handleToggleApproval(u, 'approved')}
-                              title="审批通过"
+                              title={t.titleApprove}
                             >
-                              通过
+                              {t.btnApprove}
                             </button>
                           ) : !u.is_admin && u.approval_status === 'approved' ? (
                             <button
@@ -241,9 +248,9 @@ export const AdminUsersPage: React.FC = () => {
                               className="demo-btn-action"
                               disabled={isBusy}
                               onClick={() => handleToggleApproval(u, 'pending')}
-                              title="重设为待审"
+                              title={t.titleResetPending}
                             >
-                              重设待审
+                              {t.btnResetPending}
                             </button>
                           ) : null}
                           {!u.is_admin && u.approval_status === 'pending' && (
@@ -252,9 +259,9 @@ export const AdminUsersPage: React.FC = () => {
                               className="demo-btn-action demo-btn-action-red"
                               disabled={isBusy}
                               onClick={() => handleToggleApproval(u, 'rejected')}
-                              title="拒绝审批"
+                              title={t.titleReject}
                             >
-                              拒绝
+                              {t.btnReject}
                             </button>
                           )}
 
@@ -265,7 +272,7 @@ export const AdminUsersPage: React.FC = () => {
                               disabled={isBusy}
                               onClick={() => handleToggleActive(u)}
                             >
-                              {u.is_active ? '禁用' : '启用'}
+                              {u.is_active ? t.btnDisable : t.btnEnable}
                             </button>
                           )}
 
@@ -275,9 +282,9 @@ export const AdminUsersPage: React.FC = () => {
                             className="demo-btn-action"
                             disabled={isBusy}
                             onClick={() => handleReset2Fa(u)}
-                            title="重置用户两步验证"
+                            title={t.titleReset2faReact}
                           >
-                            重置 2FA
+                            {t.btnReset2fa}
                           </button>
 
                           {!u.is_admin && (
@@ -286,9 +293,9 @@ export const AdminUsersPage: React.FC = () => {
                               className="demo-btn-action demo-btn-action-red"
                               disabled={isBusy}
                               onClick={() => handleDeleteUser(u)}
-                              title="删除该用户"
+                              title={t.titleDelete}
                             >
-                              删除
+                              {t.btnDelete}
                             </button>
                           )}
                         </div>

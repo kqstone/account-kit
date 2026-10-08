@@ -2,9 +2,11 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { initSetup, testDatabase } from '../lib/api'
+import { useDemoI18n } from '../lib/i18n'
 
 export const SetupPage: React.FC = () => {
   const { setInitialized } = useAuth()
+  const { t } = useDemoI18n()
   const navigate = useNavigate()
 
   // Postgres DB State
@@ -51,10 +53,10 @@ export const SetupPage: React.FC = () => {
         password: dbPassword,
         database: dbName.trim(),
       })
-      setDbTestMessage({ type: 'success', text: '✓ 数据库连接成功！' })
+      setDbTestMessage({ type: 'success', text: t.dbTestSuccess })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '连接数据库失败'
-      setDbTestMessage({ type: 'error', text: `✗ 数据库连接失败: ${msg}` })
+      const msg = err instanceof Error ? err.message : t.dbTestConnectFailed
+      setDbTestMessage({ type: 'error', text: `${t.dbTestFailedPrefix}${msg}` })
     } finally {
       setTestingDb(false)
     }
@@ -65,15 +67,15 @@ export const SetupPage: React.FC = () => {
     setSubmitError('')
 
     if (!dbHost || !dbUser || !dbName) {
-      setSubmitError('请完整填写数据库连接配置')
+      setSubmitError(t.errFillDbConfig)
       return
     }
     if (!adminUsername || !adminEmail || !adminPassword) {
-      setSubmitError('请完整填写管理员账号信息')
+      setSubmitError(t.errFillAdminInfo)
       return
     }
     if (adminPassword.length < 6) {
-      setSubmitError('管理员密码至少为 6 位')
+      setSubmitError(t.errAdminPasswordMin6)
       return
     }
 
@@ -112,12 +114,14 @@ export const SetupPage: React.FC = () => {
         setInitialized(true)
         navigate('/login', {
           state: {
-            message: `🎉 初始化成功！已创建管理员 ${res.admin.username} (${res.admin.email})，请登录。`,
+            message: t.setupInitSuccess
+              .replace('{username}', res.admin.username)
+              .replace('{email}', res.admin.email),
           },
         })
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '初始化失败'
+      const msg = err instanceof Error ? err.message : t.setupInitFailed
       setSubmitError(msg)
     } finally {
       setSubmitting(false)
@@ -128,10 +132,9 @@ export const SetupPage: React.FC = () => {
     <div className="demo-page-container">
       <div className="demo-card demo-setup-card">
         <div className="demo-setup-header">
-          <h2>🚀 account-kit 初始化向导</h2>
+          <h2>{t.setupHeadingRocket}</h2>
           <p className="demo-muted">
-            检测到系统尚未初始化。请配置 PostgreSQL
-            数据库与管理员凭证，系统将自动建表并挂载账号套件。
+            {t.setupDescReact}
           </p>
         </div>
 

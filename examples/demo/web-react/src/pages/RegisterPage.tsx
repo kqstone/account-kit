@@ -35,8 +35,8 @@ export const RegisterPage: React.FC = () => {
           <div className="demo-success-box">
             <div className="ak-success" style={{ marginBottom: 16 }}>
               {registeredUser.approval_status === 'pending'
-                ? `🎉 注册成功！用户「${registeredUser.username}」处于待审批状态，管理员审批通过后方可登录。`
-                : `🎉 注册成功！用户「${registeredUser.username}」已创建，请前往登录。`}
+                ? t.registerSuccessPending.replace('{username}', registeredUser.username)
+                : t.registerSuccessDirect.replace('{username}', registeredUser.username)}
             </div>
             <Link to="/login" className="ak-btn ak-btn-primary" style={{ display: 'inline-block' }}>
               {t.goLoginBtn}
