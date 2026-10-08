@@ -21,7 +21,7 @@ def _birth(value):
 class SendCodeRequest(BaseModel):
     email: EmailStr
     purpose: Literal["register", "reset_password", "change_password"]
-    language: str = "zh"
+    language: Optional[str] = None
 
 
 class VerifyCodeRequest(BaseModel):
@@ -133,7 +133,7 @@ class LogoutRequest(BaseModel):
 class ChangeEmailCodeRequest(BaseModel):
     new_email: EmailStr
     password: Optional[str] = None
-    language: str = "zh"
+    language: Optional[str] = None
 
 
 class ChangeEmailRequest(BaseModel):
@@ -150,7 +150,7 @@ class DeleteAccountRequest(BaseModel):
 
 
 class LanguageRequest(BaseModel):
-    language: Optional[str] = "zh"
+    language: Optional[str] = None
 
 
 class ProfileResponse(BaseModel):

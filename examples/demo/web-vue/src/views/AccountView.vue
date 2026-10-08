@@ -1,6 +1,6 @@
 <template>
   <div class="page-container" style="max-width: 900px; margin: 0 auto">
-    <!-- 用户信息头部卡片 -->
+    <!-- User header card -->
     <div class="card" style="display: flex; align-items: center; justify-content: space-between; gap: 20px; flex-wrap: wrap">
       <div style="display: flex; align-items: center; gap: 16px">
         <div style="width: 56px; height: 56px; border-radius: 50%; background: #e0e7ff; color: #4338ca; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: 600">
@@ -16,14 +16,14 @@
               :name="currentUser.tier_name"
               :color="currentUser.tier_badge_color || '#8c8c8c'"
             />
-            <span v-if="currentUser?.is_admin" class="badge badge-blue">管理员</span>
-            <span v-if="currentUser?.approval_status === 'approved'" class="badge badge-green">已通过审批</span>
-            <span v-else-if="currentUser?.approval_status === 'pending'" class="badge badge-yellow">审批中</span>
+            <span v-if="currentUser?.is_admin" class="badge badge-blue">{{ tt.admin }}</span>
+            <span v-if="currentUser?.approval_status === 'approved'" class="badge badge-green">{{ tt.approved }}</span>
+            <span v-else-if="currentUser?.approval_status === 'pending'" class="badge badge-yellow">{{ tt.pending }}</span>
           </div>
           <div style="font-size: 14px; color: var(--color-text-secondary); margin-top: 4px">
-            <span>邮箱: {{ currentUser?.email }}</span>
+            <span>{{ tt.emailLabel }}: {{ currentUser?.email }}</span>
             <span style="margin: 0 8px">·</span>
-            <span>角色: {{ currentUser?.role || '默认' }}</span>
+            <span>{{ tt.roleLabel }}: {{ currentUser?.role || tt.roleDefault }}</span>
           </div>
         </div>
       </div>
@@ -33,7 +33,7 @@
           :client="client"
           :token="token"
           :refresh-token="refreshToken"
-          language="zh"
+          
           @done="handleLogoutDone"
         />
         <LogoutButton
@@ -41,15 +41,15 @@
           :token="token"
           :refresh-token="refreshToken"
           :all-devices="true"
-          language="zh"
+          
           @done="handleLogoutDone"
         >
-          全部设备登出
+          {{ tt.logoutAll }}
         </LogoutButton>
       </div>
     </div>
 
-    <!-- 导航标签 -->
+    <!-- Navigation tabs -->
     <div class="tabs">
       <button
         type="button"
@@ -57,7 +57,7 @@
         :class="{ active: currentTab === 'profile' }"
         @click="currentTab = 'profile'"
       >
-        个人资料与密码
+        {{ tt.tabProfilePassword }}
       </button>
       <button
         type="button"
@@ -65,7 +65,7 @@
         :class="{ active: currentTab === 'email' }"
         @click="currentTab = 'email'"
       >
-        修改邮箱
+        {{ tt.tabEmail }}
       </button>
       <button
         type="button"
@@ -73,7 +73,7 @@
         :class="{ active: currentTab === '2fa' }"
         @click="currentTab = '2fa'"
       >
-        两步验证 (2FA)
+        {{ tt.tab2fa }}
       </button>
       <button
         type="button"
@@ -81,21 +81,21 @@
         :class="{ active: currentTab === 'danger' }"
         @click="currentTab = 'danger'"
       >
-        危险操作
+        {{ tt.tabDanger }}
       </button>
     </div>
 
-    <!-- 1. 资料与密码 -->
+    <!-- 1. Profile & Password -->
     <div v-show="currentTab === 'profile'" class="card">
-      <h3 class="card-title">基本资料与修改密码</h3>
+      <h3 class="card-title">{{ tt.accountProfileHeading }}</h3>
       <p class="card-subtitle">
-        更新姓名、性别、机构及登录密码。修改密码可按需校验邮箱验证码。
+        {{ tt.accountProfileDesc }}
       </p>
 
       <div class="outbox-hint-banner" style="margin-bottom: 20px">
-        <span>📬 若修改密码需要验证码，请在站内信箱查看</span>
+        <span>{{ tt.accountMailboxPasswordTip }}</span>
         <button type="button" class="btn btn-secondary btn-sm" @click="openDrawer">
-          查看信箱
+          {{ tt.viewMailbox }}
         </button>
       </div>
 
@@ -104,24 +104,24 @@
         :client="client"
         :token="token"
         :user="currentUser"
-        language="zh"
+        
         password-email-code="auto"
         @saved="handleProfileSaved"
         @password-changed="handlePasswordChanged"
       />
     </div>
 
-    <!-- 2. 修改邮箱 -->
+    <!-- 2. Change Email -->
     <div v-show="currentTab === 'email'" class="card">
-      <h3 class="card-title">修改绑定邮箱</h3>
+      <h3 class="card-title">{{ tt.accountEmailHeading }}</h3>
       <p class="card-subtitle">
-        系统将发送 6 位验证码到新邮箱以确认所有权。当前 demo 运行在 console 邮件模式下，可直接在站内信箱查看验证码。
+        {{ tt.accountEmailDesc }}
       </p>
 
       <div class="outbox-hint-banner" style="margin-bottom: 20px">
-        <span>📬 发送改邮验证码后，请在站内信箱复制</span>
+        <span>{{ tt.accountMailboxEmailTip }}</span>
         <button type="button" class="btn btn-secondary btn-sm" @click="openDrawer">
-          查看信箱
+          {{ tt.viewMailbox }}
         </button>
       </div>
 
@@ -131,22 +131,22 @@
         :token="token"
         :user="currentUser"
         :require-password="true"
-        language="zh"
+        
         @changed="handleEmailChanged"
       />
     </div>
 
-    <!-- 3. 两步验证 (2FA) -->
+    <!-- 3. Two-Factor (2FA) -->
     <div v-show="currentTab === '2fa'" class="card">
-      <h3 class="card-title">两步验证设置 (2FA)</h3>
+      <h3 class="card-title">{{ tt.account2faHeading }}</h3>
       <p class="card-subtitle">
-        使用 TOTP 身份验证器（如 Google Authenticator）为您的账号增加安全保护。
+        {{ tt.account2faDesc }}
       </p>
 
       <div class="outbox-hint-banner" style="margin-bottom: 20px">
-        <span>📬 若选择邮箱验证码关闭或重置 2FA，可在信箱获取验证码</span>
+        <span>{{ tt.accountMailbox2faTip }}</span>
         <button type="button" class="btn btn-secondary btn-sm" @click="openDrawer">
-          查看信箱
+          {{ tt.viewMailbox }}
         </button>
       </div>
 
@@ -155,27 +155,27 @@
         :client="client"
         :token="token"
         :username="currentUser.username"
-        language="zh"
+        
         @updated="handleTwoFactorUpdated"
       />
     </div>
 
-    <!-- 4. 危险操作 (注销账号) -->
+    <!-- 4. Danger Zone (Delete Account) -->
     <div v-show="currentTab === 'danger'" class="card">
-      <h3 class="card-title" style="color: var(--color-danger)">注销账号</h3>
+      <h3 class="card-title" style="color: var(--color-danger)">{{ tt.deleteAccountTitle }}</h3>
       <p class="card-subtitle">
-        注销账号为不可逆操作。注销后所有个人数据将被清除。
+        {{ tt.deleteAccountDesc }}
       </p>
 
       <div v-if="currentUser?.is_admin" class="alert alert-warning">
-        当前账号具有管理员权限。出于安全保护，系统禁止管理员自助注销账号（如需注销，请由其他管理员操作）。
+        {{ tt.deleteAccountAdminBlocked }}
       </div>
 
       <template v-else>
         <div class="outbox-hint-banner" style="margin-bottom: 20px">
-          <span>📬 若开启了 2FA 且选择邮箱验证码注销，请在信箱获取验证码</span>
+          <span>{{ tt.accountMailboxDeleteTip }}</span>
           <button type="button" class="btn btn-secondary btn-sm" @click="openDrawer">
-            查看信箱
+            {{ tt.viewMailbox }}
           </button>
         </div>
 
@@ -184,7 +184,7 @@
           :token="token"
           :two-factor-enabled="tfStatus?.enabled || false"
           :email-code-available="tfStatus?.email_available || false"
-          language="zh"
+          
           @deleted="handleAccountDeleted"
         />
       </template>
@@ -213,6 +213,7 @@ import {
   refreshCurrentUser,
   outboxDrawerOpen,
 } from "../api"
+import { tt } from "../i18n"
 
 const router = useRouter()
 const currentTab = ref<"profile" | "email" | "2fa" | "danger">("profile")
@@ -263,7 +264,7 @@ function handleLogoutDone() {
 function handleAccountDeleted() {
   tokenStore.clear()
   currentUser.value = null
-  alert("您的账号已成功注销")
+  alert(tt.value.accountDeletedAlert)
   router.push("/login")
 }
 

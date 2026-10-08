@@ -9,40 +9,13 @@ from typing import Optional
 from jinja2 import ChoiceLoader, Environment, FileSystemLoader, TemplateNotFound
 
 from account_kit.config import AccountKitConfig
+from account_kit.i18n import email_lang_suffix, resolve_email_language, t
 
 _template_dir = os.path.join(os.path.dirname(__file__), "templates", "emails")
-
-_ACTIONS = {
-    "zh": {
-        "register": "注册账户",
-        "reset_password": "重置密码",
-        "change_password": "修改密码",
-        "login_2fa": "登录验证",
-        "disable_2fa": "关闭两步验证",
-        "change_email": "修改账号邮箱",
-        "delete_account": "注销账号",
-    },
-    "en": {
-        "register": "register",
-        "reset_password": "reset your password",
-        "change_password": "change your password",
-        "login_2fa": "sign in",
-        "disable_2fa": "turn off two-factor authentication",
-        "change_email": "change your account email",
-        "delete_account": "delete your account",
-    },
-}
 
 _DEFAULT_TEMPLATES = {
     "login_2fa": "two_factor_login_{lang}.html",
     "disable_2fa": "two_factor_disable_{lang}.html",
-}
-
-_SUBJECTS = {
-    ("login_2fa", "zh"): "【{brand}】登录验证码",
-    ("login_2fa", "en"): "[{brand}] Your sign-in verification code",
-    ("disable_2fa", "zh"): "【{brand}】关闭两步验证验证码",
-    ("disable_2fa", "en"): "[{brand}] Code to turn off two-step verification",
 }
 
 
@@ -82,16 +55,18 @@ def _template_name(config: AccountKitConfig, purpose: str, lang: str) -> str:
 
 
 def render_code_email(config: AccountKitConfig, purpose: str, code: str, language: str) -> tuple[str, str]:
-    lang = language if language in ("zh", "en") else "zh"
-    action = _ACTIONS[lang].get(purpose, purpose)
+    lang = email_lang_suffix(language)
+    locale = "en" if lang == "en" else "zh-CN"
+    action_key = f"EMAIL_ACTION_{purpose}"
+    action = t(action_key, locale=locale)
+    if action == action_key:
+        action = purpose
     brand = config.brand_name
-    subject_tmpl = _SUBJECTS.get((purpose, lang))
-    if subject_tmpl:
-        subject = subject_tmpl.format(brand=brand)
-    elif lang == "zh":
-        subject = f"【{brand}】验证码"
+    params = {"brand": brand}
+    if purpose in ("login_2fa", "disable_2fa"):
+        subject = t(f"EMAIL_SUBJECT_{purpose}", params, locale=locale)
     else:
-        subject = f"[{brand}] Verification code"
+        subject = t("EMAIL_SUBJECT_generic", params, locale=locale)
     env = _jinja_env(config)
     name = _template_name(config, purpose, lang)
     try:
@@ -123,9 +98,13 @@ def deliver_smtp(config: AccountKitConfig, to_email: str, subject: str, body: st
     server.quit()
 
 
-async def send_code_email(config: AccountKitConfig, to_email: str, purpose: str, code: str, language: str = "zh") -> None:
+async def send_code_email(
+    config: AccountKitConfig, to_email: str, purpose: str, code: str, language: Optional[str] = None
+) -> None:
+    # Host mailers keep receiving "zh" / "en" (template suffix), not "zh-CN".
+    lang = resolve_email_language(language)
     if config.mailer is not None:
-        await config.mailer(to_email, purpose, code, language)
+        await config.mailer(to_email, purpose, code, lang)
         return
-    subject, body = render_code_email(config, purpose, code, language)
+    subject, body = render_code_email(config, purpose, code, lang)
     deliver_smtp(config, to_email, subject, body)

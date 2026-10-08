@@ -14,9 +14,11 @@ import {
 } from '@kqstone/account-ui-react'
 import { accountClient, tokenStore } from '../lib/auth'
 import { useAuth } from '../context/AuthContext'
+import { useDemoI18n } from '../lib/i18n'
 
 export const AccountPage: React.FC = () => {
   const { user, token, refreshUser, logout } = useAuth()
+  const { t } = useDemoI18n()
   const navigate = useNavigate()
 
   const [activeTab, setActiveTab] = useState<
@@ -39,14 +41,14 @@ export const AccountPage: React.FC = () => {
     return (
       <div className="demo-page-container">
         <div className="demo-card">
-          <p>未登录，请先登录。</p>
+          <p>{t.notLoggedIn}</p>
         </div>
       </div>
     )
   }
 
   const handleUserUpdated = (updated: AccountUser) => {
-    setInfoMessage('资料已成功更新')
+    setInfoMessage(t.profileUpdated)
     void refreshUser()
     setTimeout(() => setInfoMessage(''), 3000)
   }
@@ -70,14 +72,14 @@ export const AccountPage: React.FC = () => {
             token={token}
             user={user}
             size={72}
-            language="zh"
+            
             onUploaded={handleUserUpdated}
             onDeleted={handleUserUpdated}
           />
           <div className="demo-account-header-info">
             <div className="demo-account-name-row">
               <h2>{user.username}</h2>
-              {user.is_admin && <span className="demo-admin-tag">管理员</span>}
+              {user.is_admin && <span className="demo-admin-tag">{t.admin}</span>}
               {user.tier_name && (
                 <TierBadge
                   name={user.tier_name}
@@ -86,12 +88,12 @@ export const AccountPage: React.FC = () => {
               )}
             </div>
             <p className="demo-account-email">
-              邮箱: {user.email} • 角色: {user.role || '默认'} • 审批:{' '}
+              {t.emailLabel}: {user.email} • {t.roleLabel}: {user.role || t.roleDefault} • {t.approvalLabel}:{' '}
               {user.approval_status === 'approved'
-                ? '已通过'
+                ? t.statusApproved
                 : user.approval_status === 'pending'
-                  ? '审核中'
-                  : '已拒绝'}
+                  ? t.statusReviewing
+                  : t.statusRejected}
             </p>
           </div>
         </div>
@@ -104,7 +106,7 @@ export const AccountPage: React.FC = () => {
             className="ak-btn ak-btn-outline"
             onDone={handleLogoutDone}
           >
-            退出登录
+            {t.logout}
           </LogoutButton>
         </div>
       </div>
@@ -119,47 +121,47 @@ export const AccountPage: React.FC = () => {
             className={`demo-tab-btn ${activeTab === 'profile' ? 'active' : ''}`}
             onClick={() => setActiveTab('profile')}
           >
-            👤 基本资料与密码
+            {t.tabProfilePasswordWithIcon}
           </button>
           <button
             type="button"
             className={`demo-tab-btn ${activeTab === 'email' ? 'active' : ''}`}
             onClick={() => setActiveTab('email')}
           >
-            ✉️ 修改邮箱
+            {t.tabEmailWithIcon}
           </button>
           <button
             type="button"
             className={`demo-tab-btn ${activeTab === '2fa' ? 'active' : ''}`}
             onClick={() => setActiveTab('2fa')}
           >
-            🔐 两步验证 (2FA)
+            {t.tab2faWithIcon}
           </button>
           <button
             type="button"
             className={`demo-tab-btn ${activeTab === 'security' ? 'active' : ''}`}
             onClick={() => setActiveTab('security')}
           >
-            ⚙️ 会话与账号注销
+            {t.tabSessionsDangerWithIcon}
           </button>
         </div>
 
         <div className="demo-card demo-tab-content">
           {activeTab === 'profile' && (
             <div>
-              <h3 className="demo-tab-heading">个人资料与修改密码</h3>
+              <h3 className="demo-tab-heading">{t.accountProfileHeadingReact}</h3>
               <p className="demo-muted" style={{ marginBottom: 16 }}>
-                更新姓名、机构、性别及出生年月，也可同时修改登录密码。
+                {t.accountProfileDescReact}
               </p>
               <ProfileFields
                 client={accountClient}
                 token={token}
                 user={user}
-                language="zh"
+                
                 passwordEmailCode="auto"
                 onSaved={(res) => handleUserUpdated(res.user)}
                 onPasswordChanged={() => {
-                  setInfoMessage('密码已成功修改！')
+                  setInfoMessage(t.passwordUpdated)
                   setTimeout(() => setInfoMessage(''), 3000)
                 }}
               />
@@ -168,16 +170,16 @@ export const AccountPage: React.FC = () => {
 
           {activeTab === 'email' && (
             <div>
-              <h3 className="demo-tab-heading">修改绑定邮箱</h3>
+              <h3 className="demo-tab-heading">{t.accountEmailHeading}</h3>
               <p className="demo-muted" style={{ marginBottom: 16 }}>
-                向新邮箱发送验证码，验证后完成绑定。可在站内信箱查看验证码。
+                {t.accountEmailDescReact}
               </p>
               <ChangeEmailForm
                 client={accountClient}
                 token={token}
                 user={user}
                 requirePassword={true}
-                language="zh"
+                
                 onChanged={handleUserUpdated}
               />
             </div>
@@ -185,15 +187,15 @@ export const AccountPage: React.FC = () => {
 
           {activeTab === '2fa' && (
             <div>
-              <h3 className="demo-tab-heading">两步验证 (2FA) 设置</h3>
+              <h3 className="demo-tab-heading">{t.account2faHeading}</h3>
               <p className="demo-muted" style={{ marginBottom: 16 }}>
-                使用 Authenticator App 扫描二维码绑定 TOTP，或管理受信设备。
+                {t.account2faDescReact}
               </p>
               <TwoFactorSettings
                 client={accountClient}
                 token={token}
                 username={user.username}
-                language="zh"
+                
                 renderQr={renderQr}
                 onUpdated={(status) => setTwoFactorStatus(status)}
               />
@@ -203,9 +205,9 @@ export const AccountPage: React.FC = () => {
           {activeTab === 'security' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 24 }}>
               <div>
-                <h3 className="demo-tab-heading">登出控制</h3>
+                <h3 className="demo-tab-heading">{t.accountLogoutHeading}</h3>
                 <p className="demo-muted" style={{ marginBottom: 12 }}>
-                  登出当前设备或吊销所有设备的登录会话与刷新令牌。
+                  {t.accountLogoutDesc}
                 </p>
                 <div style={{ display: 'flex', gap: 12 }}>
                   <LogoutButton
@@ -214,7 +216,7 @@ export const AccountPage: React.FC = () => {
                     refreshToken={tokenStore.getRefreshToken()}
                     onDone={handleLogoutDone}
                   >
-                    登出当前设备
+                    {t.logoutCurrentDevice}
                   </LogoutButton>
                   <LogoutButton
                     client={accountClient}
@@ -224,30 +226,30 @@ export const AccountPage: React.FC = () => {
                     className="ak-btn ak-btn-danger"
                     onDone={handleLogoutDone}
                   >
-                    登出全部设备
+                    {t.logoutAllDevices}
                   </LogoutButton>
                 </div>
               </div>
 
               <div style={{ borderTop: '1px solid #f0f0f0', paddingTop: 24 }}>
                 <h3 className="demo-tab-heading" style={{ color: '#d92d20' }}>
-                  危险区域：注销账号
+                  {t.dangerZoneHeading}
                 </h3>
                 {user.is_admin ? (
                   <div className="ak-warn">
-                    🛡️ 当前账号是系统超级管理员，管理员账号禁止自助注销。
+                    {t.deleteAccountAdminBlockedReact}
                   </div>
                 ) : (
                   <div>
                     <p className="demo-muted" style={{ marginBottom: 12 }}>
-                      注销后您的账号将无法恢复，相关凭据将全部被吊销。
+                      {t.deleteAccountWarningReact}
                     </p>
                     <DeleteAccountForm
                       client={accountClient}
                       token={token}
                       twoFactorEnabled={twoFactorStatus?.enabled ?? false}
                       emailCodeAvailable={twoFactorStatus?.email_available ?? false}
-                      language="zh"
+                      
                       onDeleted={handleLogoutDone}
                     />
                   </div>

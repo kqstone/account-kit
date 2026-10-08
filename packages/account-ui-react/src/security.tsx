@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef, type FormEvent, type ReactNode } from "react"
 import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { interpolate, messageOf, type DeepPartial } from "./utils"
 
@@ -51,9 +52,11 @@ export const CaptchaImage = forwardRef<
     language?: string
     labels?: DeepPartial<ProfileLabels> | null
   }
->(function CaptchaImage({ client, value, onChange, onCaptchaId, onError, language = "zh", labels }, ref) {
+>(function CaptchaImage({ client, value, onChange, onCaptchaId, onError, language, labels }, ref) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveProfileLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [image, setImage] = useState("")
   const [error, setError] = useState("")
 
@@ -101,7 +104,7 @@ export function ChangeEmailForm({
   client,
   token,
   user,
-  language = "zh",
+  language,
   labels,
   requirePassword = true,
   className = "",
@@ -119,7 +122,9 @@ export function ChangeEmailForm({
   onError?: (error: unknown) => void
 }) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveProfileLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [newEmail, setNewEmail] = useState("")
   const [code, setCode] = useState("")
   const [password, setPassword] = useState("")
@@ -134,7 +139,7 @@ export function ChangeEmailForm({
     setInfo("")
     setSending(true)
     try {
-      const sent = await client.sendChangeEmailCode(token, newEmail.trim(), { language })
+      const sent = await client.sendChangeEmailCode(token, newEmail.trim(), { language: locale })
       setInfo(interpolate(L.codeSentTo, { email: sent.email || newEmail.trim() }))
       start(sent.cooldown || 60)
     } catch (e) {
@@ -196,7 +201,7 @@ export function ChangeEmailForm({
 export function DeleteAccountForm({
   client,
   token,
-  language = "zh",
+  language,
   labels,
   twoFactorEnabled = false,
   emailCodeAvailable = false,
@@ -217,7 +222,9 @@ export function DeleteAccountForm({
   onError?: (error: unknown) => void
 }) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveProfileLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [password, setPassword] = useState("")
   const [factor, setFactor] = useState("")
   const [emailCode, setEmailCode] = useState("")
@@ -231,7 +238,7 @@ export function DeleteAccountForm({
     setError("")
     setSending(true)
     try {
-      const sent = await client.sendDeleteAccountEmailCode(token, language)
+      const sent = await client.sendDeleteAccountEmailCode(token, locale)
       start(sent.cooldown || 60)
     } catch (e) {
       setError(messageOf(e, L.error))
@@ -299,7 +306,7 @@ export function LogoutButton({
   token,
   refreshToken,
   allDevices = false,
-  language = "zh",
+  language,
   labels,
   className = "",
   children,
@@ -316,7 +323,9 @@ export function LogoutButton({
   onDone?: (error: unknown) => void
 }) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveProfileLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [busy, setBusy] = useState(false)
   async function run() {
     setBusy(true)

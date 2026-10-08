@@ -6,6 +6,7 @@ import {
   refreshCurrentUser,
   currentUser,
 } from "./api"
+import { demoLocale, messages } from "./i18n"
 
 const routes: RouteRecordRaw[] = [
   {
@@ -106,7 +107,7 @@ router.beforeEach(async (to, _from, next) => {
         await refreshCurrentUser()
       }
       if (!currentUser.value?.is_admin) {
-        alert("需要管理员权限才能访问此页面")
+        alert(messages[demoLocale.value].requireAdminAlert)
         return next("/account")
       }
     }

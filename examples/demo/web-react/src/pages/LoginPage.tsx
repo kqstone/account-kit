@@ -11,9 +11,11 @@ import {
 } from '@kqstone/account-ui-react'
 import { accountClient, tokenStore } from '../lib/auth'
 import { useAuth } from '../context/AuthContext'
+import { useDemoI18n } from '../lib/i18n'
 
 export const LoginPage: React.FC = () => {
   const { refreshUser } = useAuth()
+  const { t } = useDemoI18n()
   const navigate = useNavigate()
   const location = useLocation()
   const stateMessage = (location.state as { message?: string })?.message
@@ -42,9 +44,9 @@ export const LoginPage: React.FC = () => {
   return (
     <div className="demo-page-container">
       <div className="demo-card demo-auth-card">
-        <h2 className="demo-auth-title">登录账号</h2>
+        <h2 className="demo-auth-title">{t.loginTitle}</h2>
         <p className="demo-muted demo-auth-subtitle">
-          请输入您的用户名和密码以登录系统
+          {t.loginDesc}
         </p>
 
         {stateMessage && (
@@ -78,23 +80,22 @@ export const LoginPage: React.FC = () => {
             challenge={mfaChallenge}
             force={mfaChallenge.force}
             scope={trustedDeviceScope('', mfaChallenge.username)}
-            language="zh"
             onSuccess={handleMfaSuccess}
             onCancel={() => setMfaChallenge(null)}
             onExpired={(msg) => {
               setMfaChallenge(null)
-              setError(msg || '两步验证已过期，请重新登录')
+              setError(msg || t.mfaExpired)
             }}
           />
         )}
 
         <div className="demo-auth-footer">
           <Link to="/reset" className="ak-link">
-            忘记密码？
+            {t.forgot}
           </Link>
           <span className="demo-divider">•</span>
           <Link to="/register" className="ak-link">
-            没有账号？立即注册
+            {t.noAccount}
           </Link>
         </div>
       </div>

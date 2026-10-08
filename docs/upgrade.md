@@ -4,6 +4,50 @@
 
 ---
 
+## 升级至 0.3.0（国际化）
+
+无数据库迁移。默认语言改为纯中文 `zh-CN`；新增顶层错误 `code`。原先按英文或旧中文句子匹配的宿主必须改成按 `code` 匹配。
+
+### 行为变化
+
+| 变化 | 兼容性 |
+|---|---|
+| 默认登录失败文案由 `Incorrect username or password` 改为 `用户名或密码错误` | 破坏：按英文字符串判断的客户端/宿主 |
+| 其它原英文 zh 路径（`Email already registered`、`User is disabled`、`Could not validate credentials`、`Not found`、`Admin required`、`Avatar not found`、`Invalid purpose`、`Username already registered` 等）改为中文 | 同上 |
+| kit 错误响应增加顶层 `code`（及插值时的 `params`） | 兼容扩展：`detail` 类型与附加字段不变 |
+| kit 内部按文案判断改为按错误码 | 无宿主影响 |
+| 邮件请求体 `language` 默认 `None`，跟随请求语言；显式 `zh`/`en` 仍有效 | 未传 `language` 时随 `X-Locale` / 默认中文 |
+| `mailer(..., language)` 仍接收 `"zh"` / `"en"` | 兼容 |
+| UI labels 字典 key 由 `zh` 改为 `zh-CN`（`language="zh"` 仍映射到中文） | 覆盖 `labels` 时按新 key |
+| UI 新增 Provider / `getLocale` / `formatError` | 可选接入 |
+| UI Provider / 插件用 `messages` 覆盖文案（`labels` 仅为别名） | 可选；组件 `labels` prop 仍可用 |
+| React `AccountKitProvider` 可传 `i18n`（订阅 `languageChanged`）；Vue 插件可传 `i18n` | 可选；`followI18next` / `followVueI18n` 仍可用 |
+
+`SESSION_REPLACED` 的字符串 `detail` 在两种语言下都仍是字面量 `SESSION_REPLACED`。
+
+### 宿主迁移
+
+```python
+# 旧：if detail == "Incorrect username or password"
+# 新：
+code = body.get("code") or (detail.get("code") if isinstance(detail, dict) else None)
+if code == "INVALID_CREDENTIALS":
+    ...
+```
+
+覆盖文案：
+
+```python
+AccountKitConfig(
+    jwt_secret="...",
+    messages_override={"zh-CN": {"INVALID_CREDENTIALS": "账号或密码不对"}},
+)
+```
+
+前端：用 `AccountKitProvider` / `accountKitI18n` / `provideAccountI18n`。可传 `messages` 覆盖目录；React 可把 i18next 实例交给 `i18n` prop，Vue 插件同样接受 `i18n`。`createAccountClient({ getLocale: followVueI18n(i18n) })` 或 `{ getLocale: () => i18n.language }` 自动带 `X-Locale`。详见 [i18n.md](i18n.md)。
+
+---
+
 ## 升级至 0.2.3（单一管理员与后台安全）
 
 应用层改动随包升级即生效，**不必改宿主代码**即可获得：

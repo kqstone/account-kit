@@ -23,12 +23,61 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 from account_kit import ensure_admin, init_db, mount_account, seed_defaults
 from account_kit.admin_setup import AdminSetupError
 from account_kit.config import AccountKitConfig, SmtpConfig
+from account_kit.i18n import canonicalize_locale, normalize_locale, parse_accept_language
 
 from .mailer import Outbox, make_mailer
 
 DEMO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parent / ".demo-config.json"
 BRAND = "Account Kit Demo"
+
+DEMO_MESSAGES: Dict[str, Dict[str, str]] = {
+    "zh-CN": {
+        "NOT_INITIALIZED": "请先完成初始化",
+        "ALREADY_INITIALIZED": "已经初始化，setup 写接口已锁死",
+        "DB_UNREACHABLE": "无法连接数据库: {exc}",
+        "INIT_FAILED": "初始化失败: {exc}",
+        "MAIL_MODE_INVALID": "mail_mode 必须是 console 或 smtp",
+        "SMTP_HOST_REQUIRED": "smtp 模式需要 smtp.host",
+        "SPA_NOT_FOUND": "资源不存在",
+    },
+    "en": {
+        "NOT_INITIALIZED": "Please complete setup first",
+        "ALREADY_INITIALIZED": "Already initialized; setup write APIs are locked",
+        "DB_UNREACHABLE": "Cannot reach the database: {exc}",
+        "INIT_FAILED": "Setup failed: {exc}",
+        "MAIL_MODE_INVALID": "mail_mode must be console or smtp",
+        "SMTP_HOST_REQUIRED": "smtp mode requires smtp.host",
+        "SPA_NOT_FOUND": "Not found",
+    },
+}
+
+
+def demo_locale(request: Optional[Request] = None) -> str:
+    if request is None:
+        return "zh-CN"
+    header = request.headers.get("X-Locale") or request.headers.get("x-locale")
+    if header:
+        return canonicalize_locale(header)
+    query = request.query_params.get("locale")
+    if query:
+        return canonicalize_locale(query)
+    accept = request.headers.get("accept-language") or ""
+    for tag in parse_accept_language(accept):
+        norm = normalize_locale(tag)
+        if norm in ("zh-CN", "en"):
+            return norm
+    return "zh-CN"
+
+
+def demo_text(code: str, request: Optional[Request] = None, **params: Any) -> str:
+    loc = demo_locale(request)
+    template = DEMO_MESSAGES.get(loc, DEMO_MESSAGES["zh-CN"]).get(code) or DEMO_MESSAGES["zh-CN"][code]
+    try:
+        return template.format(**params) if params else template
+    except (KeyError, IndexError, ValueError):
+        return template
+
 
 FEATURE_DEFAULTS: Dict[str, Any] = {
     "refresh": True,
@@ -149,8 +198,14 @@ class KitDispatch:
             if path.startswith("/api/auth") or path.startswith("/api/admin"):
                 kit = self.runtime.kit_app
                 if kit is None:
+                    request = Request(scope)
                     response = JSONResponse(
-                        {"detail": {"code": "NOT_INITIALIZED", "message": "请先完成初始化"}},
+                        {
+                            "detail": {
+                                "code": "NOT_INITIALIZED",
+                                "message": demo_text("NOT_INITIALIZED", request),
+                            }
+                        },
                         status_code=503,
                     )
                     await response(scope, receive, send)
@@ -160,7 +215,7 @@ class KitDispatch:
         await self.app(scope, receive, send)
 
 
-async def test_postgres(db: DbBody) -> None:
+async def test_postgres(db: DbBody, request: Optional[Request] = None) -> None:
     try:
         conn = await asyncpg.connect(
             host=db.host,
@@ -173,7 +228,7 @@ async def test_postgres(db: DbBody) -> None:
     except Exception as exc:
         raise HTTPException(
             status_code=400,
-            detail={"code": "DB_UNREACHABLE", "message": f"无法连接数据库: {exc}"},
+            detail={"code": "DB_UNREACHABLE", "message": demo_text("DB_UNREACHABLE", request, exc=exc)},
         ) from exc
     try:
         await conn.execute("SELECT 1")
@@ -234,6 +289,7 @@ def build_kit_config(runtime: Runtime) -> AccountKitConfig:
         mailer=runtime.mailer,
         admin_login_lockout_attempts=5,
         admin_login_lockout_seconds=900,
+        negotiate_accept_language=True,
         smtp=SmtpConfig(
             host=smtp_raw.get("host") or "",
             port=int(smtp_raw.get("port") or 587),
@@ -292,11 +348,11 @@ def public_status(runtime: Runtime) -> Dict[str, Any]:
     }
 
 
-def _raise_if_initialized(runtime: Runtime) -> None:
+def _raise_if_initialized(runtime: Runtime, request: Optional[Request] = None) -> None:
     if runtime.ready:
         raise HTTPException(
             status_code=409,
-            detail={"code": "ALREADY_INITIALIZED", "message": "已经初始化，setup 写接口已锁死"},
+            detail={"code": "ALREADY_INITIALIZED", "message": demo_text("ALREADY_INITIALIZED", request)},
         )
 
 
@@ -328,21 +384,21 @@ def create_app() -> FastAPI:
         return public_status(runtime)
 
     @app.post("/api/setup/test-db")
-    async def setup_test_db(body: DbBody):
-        _raise_if_initialized(runtime)
-        await test_postgres(body)
+    async def setup_test_db(body: DbBody, request: Request):
+        _raise_if_initialized(runtime, request)
+        await test_postgres(body, request)
         return {"ok": True}
 
     @app.post("/api/setup/init")
-    async def setup_init(body: InitBody):
+    async def setup_init(body: InitBody, request: Request):
         async with runtime.lock:
-            _raise_if_initialized(runtime)
+            _raise_if_initialized(runtime, request)
             mail_mode = (body.mail_mode or "console").strip().lower()
             if mail_mode not in ("console", "smtp"):
-                raise HTTPException(status_code=400, detail="mail_mode 必须是 console 或 smtp")
+                raise HTTPException(status_code=400, detail=demo_text("MAIL_MODE_INVALID", request))
             if mail_mode == "smtp" and not (body.smtp and body.smtp.host):
-                raise HTTPException(status_code=400, detail="smtp 模式需要 smtp.host")
-            await test_postgres(body.db)
+                raise HTTPException(status_code=400, detail=demo_text("SMTP_HOST_REQUIRED", request))
+            await test_postgres(body.db, request)
             features = merge_features(body.features)
             stored = {
                 "db": body.db.model_dump(),
@@ -366,7 +422,7 @@ def create_app() -> FastAPI:
                 runtime.error = str(exc)
                 raise HTTPException(
                     status_code=400,
-                    detail={"code": "INIT_FAILED", "message": f"初始化失败: {exc}"},
+                    detail={"code": "INIT_FAILED", "message": demo_text("INIT_FAILED", request, exc=exc)},
                 ) from exc
             save_config(path, stored)
             return {
@@ -395,9 +451,9 @@ def create_app() -> FastAPI:
             app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
 
         @app.get("/{full_path:path}")
-        async def spa(full_path: str):
+        async def spa(full_path: str, request: Request):
             if full_path.startswith("api/") or full_path == "api":
-                raise HTTPException(status_code=404, detail="Not found")
+                raise HTTPException(status_code=404, detail=demo_text("SPA_NOT_FOUND", request))
             candidate = (dist / full_path).resolve()
             if full_path and candidate.is_relative_to(dist.resolve()) and candidate.is_file():
                 return FileResponse(candidate)

@@ -1,5 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TrustedDevice, type TwoFactorStatus } from "./client"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveTwoFactorLabels, type TwoFactorLabels } from "./labels"
 import {
   canSubmitFactor,
@@ -18,7 +19,7 @@ import {
 } from "./mfa"
 import { renderQrDataUrl, type RenderQr } from "./qr"
 import { clearTrustedDeviceTokensForUser, saveTrustedDeviceToken } from "./trustedDevice"
-import { formatDateTime, interpolate, resolveLocale, textOf, type DeepPartial } from "./utils"
+import { formatDateTime, interpolate, textOf, type DeepPartial } from "./utils"
 
 function btn(kind: "primary" | "outline" | "danger" | "link", label: string, opts: { disabled?: boolean; onClick?: () => void; submit?: boolean; extraClass?: string }) {
   const cls =
@@ -38,7 +39,7 @@ export const TwoFactorSettings = defineComponent({
     client: { type: Object as PropType<AccountClient>, required: true },
     token: { type: String, required: true },
     username: { type: String, default: "" },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<TwoFactorLabels>>, default: null },
     renderQr: { type: Function as PropType<RenderQr>, default: undefined },
     className: { type: String, default: "" },
@@ -69,7 +70,9 @@ export const TwoFactorSettings = defineComponent({
     const cooldown = ref(0)
     let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
-    const L = () => resolveTwoFactorLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const { messages } = useAccountI18n()
+    const L = () => resolveTwoFactorLabels(locale.value, props.labels, messages)
     const errText = (e: unknown) => twoFactorErrorMessage(e, L())
     const inputs = () => ({ code: code.value, recoveryCode: recoveryCode.value, emailCode: emailCode.value })
 
@@ -175,7 +178,7 @@ export const TwoFactorSettings = defineComponent({
       async function sendEmail() {
         await run(async () => {
           try {
-            const res = await props.client.sendDisableEmailCode(props.token, resolveLocale(props.language))
+            const res = await props.client.sendDisableEmailCode(props.token, locale.value)
             emailMasked.value = res.email || ""
             startCooldown(Number(res.cooldown) || 60)
           } catch (e) {
@@ -205,7 +208,7 @@ export const TwoFactorSettings = defineComponent({
             }),
             btn("outline", labels.download, {
               onClick: () => {
-                const text = recoveryCodesText(recoveryCodes.value, { username: props.username, brand: props.brand })
+                const text = recoveryCodesText(recoveryCodes.value, { username: props.username, brand: props.brand, labels })
                 const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }))
                 const a = document.createElement("a")
                 a.href = url
@@ -399,7 +402,7 @@ export const TwoFactorSettings = defineComponent({
                           h("li", { key: device.id }, [
                             h("div", [
                               h("div", { class: "ak-device-name" }, device.device_name),
-                              h("div", { class: "ak-muted" }, `${labels.lastUsed} ${formatDateTime(device.last_used_at)} · ${labels.expires} ${formatDateTime(device.expires_at)}`),
+                              h("div", { class: "ak-muted" }, `${labels.lastUsed} ${formatDateTime(device.last_used_at, locale.value)} · ${labels.expires} ${formatDateTime(device.expires_at, locale.value)}`),
                             ]),
                             btn("outline", labels.revoke, {
                               extraClass: "ak-btn-small",
@@ -450,7 +453,7 @@ export const TwoFactorLoginDialog = defineComponent({
     deviceName: { type: String, default: "" },
     force: { type: Boolean, default: false },
     trustedDays: { type: Number, default: 0 },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<TwoFactorLabels>>, default: null },
     className: { type: String, default: "" },
     scope: { type: String, default: "" },
@@ -472,7 +475,9 @@ export const TwoFactorLoginDialog = defineComponent({
     const cooldown = ref(0)
     let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
-    const L = () => resolveTwoFactorLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const { messages } = useAccountI18n()
+    const L = () => resolveTwoFactorLabels(locale.value, props.labels, messages)
     const challengeInfo = () => normalizeChallenge(props.challenge)
     const inputs = () => ({ code: code.value, recoveryCode: recoveryCode.value, emailCode: emailCode.value })
 
@@ -536,7 +541,7 @@ export const TwoFactorLoginDialog = defineComponent({
       busy.value = true
       error.value = ""
       try {
-        const res = await props.client.sendLoginEmailCode(info.challengeToken, resolveLocale(props.language))
+        const res = await props.client.sendLoginEmailCode(info.challengeToken, locale.value)
         emailMasked.value = res.email || ""
         startCooldown(Number(res.cooldown) || 60)
       } catch (e) {

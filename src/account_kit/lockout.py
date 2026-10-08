@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import Optional, Tuple
 
-from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import AccountKitConfig
+from account_kit.i18n import AccountError, account_error
 from account_kit.models import User
 from account_kit.state import counter_clear, counter_get, counter_hit, counter_ttl
 
@@ -24,15 +24,12 @@ def lockout_key(user: Optional[User], username: str) -> str:
     return f"login_lock:name:{(username or '').strip().lower()}"
 
 
-def account_locked(retry_after: int) -> HTTPException:
+def account_locked(retry_after: int) -> AccountError:
     ttl = max(1, int(retry_after or 1))
-    return HTTPException(
-        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-        detail={
-            "code": "ACCOUNT_LOCKED",
-            "message": "登录失败次数过多，请稍后再试",
-            "retry_after": ttl,
-        },
+    return account_error(
+        429,
+        "ACCOUNT_LOCKED",
+        extra={"retry_after": ttl},
         headers={"Retry-After": str(ttl)},
     )
 
@@ -49,7 +46,7 @@ async def enforce_not_locked(db: AsyncSession, config: AccountKitConfig, user: O
 
 async def record_lockout_failure(
     db: AsyncSession, config: AccountKitConfig, user: Optional[User], username: str
-) -> Optional[HTTPException]:
+) -> Optional[AccountError]:
     """Count one failed password. Returns ACCOUNT_LOCKED when the threshold is reached."""
     attempts, seconds = lockout_settings(config, user)
     if attempts <= 0:

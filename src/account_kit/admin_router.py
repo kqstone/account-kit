@@ -3,7 +3,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,6 +19,7 @@ from account_kit.admin_schemas import (
 )
 from account_kit.catalog import apply_admin_user_patch, create_role, create_tier, delete_role, delete_tier, patch_role, patch_tier
 from account_kit.config import get_config
+from account_kit.i18n import account_error
 from account_kit.deps import get_current_user, get_db, require_admin
 from account_kit import audit as audit_mod
 from account_kit.audit import audit
@@ -81,13 +82,13 @@ async def request_role_change(
     db: AsyncSession = Depends(get_db),
 ):
     if not get_config().role_change_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise account_error(404, "NOT_FOUND")
     code = assert_role_code(body.requested_role)
     role = await db.get(Role, code)
     if role is None:
-        raise HTTPException(status_code=400, detail="角色不存在")
+        raise account_error(400, "ROLE_NOT_FOUND")
     if code == current_user.role:
-        raise HTTPException(status_code=400, detail="已经是该角色")
+        raise account_error(400, "ROLE_UNCHANGED")
     existing = await db.execute(
         select(RoleChangeRequest).where(
             RoleChangeRequest.user_id == current_user.id,
@@ -95,7 +96,7 @@ async def request_role_change(
         )
     )
     if existing.scalars().first():
-        raise HTTPException(status_code=409, detail="已有待审核的角色申请")
+        raise account_error(409, "ROLE_CHANGE_PENDING")
     row = RoleChangeRequest(user_id=current_user.id, from_role=current_user.role, to_role=code, status="pending")
     db.add(row)
     await db.commit()
@@ -109,7 +110,7 @@ async def my_role_change_request(
     db: AsyncSession = Depends(get_db),
 ):
     if not get_config().role_change_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise account_error(404, "NOT_FOUND")
     result = await db.execute(
         select(RoleChangeRequest)
         .where(RoleChangeRequest.user_id == current_user.id, RoleChangeRequest.status == "pending")
@@ -190,7 +191,7 @@ async def patch_user(
 ):
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise account_error(404, "USER_NOT_FOUND")
     if body.is_admin is not None:
         await audit(
             db,
@@ -256,7 +257,7 @@ async def delete_user(user_id: str, request: Request, admin=Depends(require_admi
     config = get_config()
     user = await get_user_by_id(db, user_id)
     if user is None:
-        raise HTTPException(status_code=404, detail="用户不存在")
+        raise account_error(404, "USER_NOT_FOUND")
     if user.is_admin:
         await audit(
             db,
@@ -266,10 +267,7 @@ async def delete_user(user_id: str, request: Request, admin=Depends(require_admi
             request=request,
             meta={"admin_id": str(admin.id), "action": "delete", "code": "ADMIN_DELETE_FORBIDDEN"},
         )
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "ADMIN_DELETE_FORBIDDEN", "message": "不能删除管理员账号"},
-        )
+        raise account_error(400, "ADMIN_DELETE_FORBIDDEN", as_dict=True)
     target, username, admin_id = user.id, user.username, admin.id
     mode = await delete_user_account(db, config, user)
     await audit(
@@ -300,7 +298,7 @@ async def list_audit_logs(
         try:
             conditions.append(AuthAuditLog.user_id == uuid.UUID(user_id))
         except ValueError:
-            raise HTTPException(status_code=400, detail="user_id 无效")
+            raise account_error(400, "USER_ID_INVALID")
     if event:
         events = [item.strip() for item in event.split(",") if item.strip()]
         if events:
@@ -348,14 +346,14 @@ async def review_role_change(
     db: AsyncSession = Depends(get_db),
 ):
     if body.status not in ("approved", "rejected"):
-        raise HTTPException(status_code=400, detail="状态无效")
+        raise account_error(400, "STATUS_INVALID")
     try:
         request_uuid = uuid.UUID(request_id)
     except ValueError:
-        raise HTTPException(status_code=404, detail="申请不存在")
+        raise account_error(404, "ROLE_CHANGE_NOT_FOUND")
     row = await db.get(RoleChangeRequest, request_uuid)
     if row is None or row.status != "pending":
-        raise HTTPException(status_code=404, detail="申请不存在")
+        raise account_error(404, "ROLE_CHANGE_NOT_FOUND")
     row.status = body.status
     from datetime import datetime, timezone
 

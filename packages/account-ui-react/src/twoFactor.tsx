@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TrustedDevice, type TwoFactorStatus } from "./client"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveTwoFactorLabels, type TwoFactorLabels } from "./labels"
 import {
   canSubmitFactor,
@@ -18,7 +19,7 @@ import {
 } from "./mfa"
 import { renderQrDataUrl, type RenderQr } from "./qr"
 import { clearTrustedDeviceTokensForUser, saveTrustedDeviceToken } from "./trustedDevice"
-import { formatDateTime, interpolate, resolveLocale, type DeepPartial } from "./utils"
+import { formatDateTime, interpolate, type DeepPartial } from "./utils"
 
 function btnClass(kind: "primary" | "outline" | "danger" | "link", extra = "") {
   if (kind === "link") return `ak-link${extra ? ` ${extra}` : ""}`
@@ -29,7 +30,7 @@ export function TwoFactorSettings({
   client,
   token,
   username = "",
-  language = "zh",
+  language,
   labels,
   renderQr,
   className = "",
@@ -53,7 +54,9 @@ export function TwoFactorSettings({
   onUpdated?: (status: TwoFactorStatus) => void
 }) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveTwoFactorLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveTwoFactorLabels(locale, labels, messages), [locale, labels, messages])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [status, setStatus] = useState<TwoFactorStatus | null>(null)
@@ -140,7 +143,7 @@ export function TwoFactorSettings({
   async function sendEmail() {
     await run(async () => {
       try {
-        const res = await client.sendDisableEmailCode(token, resolveLocale(language))
+        const res = await client.sendDisableEmailCode(token, locale)
         setEmailMasked(res.email || "")
         startCooldown(Number(res.cooldown) || 60)
       } catch (e) {
@@ -233,7 +236,7 @@ export function TwoFactorSettings({
             type="button"
             className={btnClass("outline")}
             onClick={() => {
-              const text = recoveryCodesText(recoveryCodes, { username, brand })
+              const text = recoveryCodesText(recoveryCodes, { username, brand, labels: L })
               const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }))
               const a = document.createElement("a")
               a.href = url
@@ -455,7 +458,7 @@ export function TwoFactorSettings({
                       <div>
                         <div className="ak-device-name">{device.device_name}</div>
                         <div className="ak-muted">
-                          {L.lastUsed} {formatDateTime(device.last_used_at)} · {L.expires} {formatDateTime(device.expires_at)}
+                          {L.lastUsed} {formatDateTime(device.last_used_at, locale)} · {L.expires} {formatDateTime(device.expires_at, locale)}
                         </div>
                       </div>
                       <button
@@ -500,7 +503,7 @@ export function TwoFactorLoginDialog({
   deviceName = "",
   force = false,
   trustedDays = 0,
-  language = "zh",
+  language,
   labels,
   className = "",
   scope = "",
@@ -524,7 +527,9 @@ export function TwoFactorLoginDialog({
   onCancel?: () => void
 }) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveTwoFactorLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveTwoFactorLabels(locale, labels, messages), [locale, labels, messages])
   const info = normalizeChallenge(challenge)
   const [mode, setMode] = useState<"code" | "conflict">("code")
   const [factor, setFactor] = useState<SecondFactor>(FACTOR_TOTP)
@@ -603,7 +608,7 @@ export function TwoFactorLoginDialog({
     setBusy(true)
     setError("")
     try {
-      const res = await client.sendLoginEmailCode(info.challengeToken, resolveLocale(language))
+      const res = await client.sendLoginEmailCode(info.challengeToken, locale)
       setEmailMasked(res.email || "")
       startCooldown(Number(res.cooldown) || 60)
     } catch (e) {

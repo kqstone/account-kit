@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import HTTPException
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_kit.i18n import account_error
 from account_kit.models import Role, User, UserTier, UserTierAssignment
 from account_kit.service import assert_role_code
 
@@ -23,7 +23,7 @@ async def _clear_default_tier(db: AsyncSession) -> None:
 async def create_role(db: AsyncSession, body) -> Role:
     code = assert_role_code(body.code)
     if await db.get(Role, code):
-        raise HTTPException(status_code=409, detail="角色已存在")
+        raise account_error(409, "ROLE_EXISTS")
     if body.is_default:
         await _clear_default_role(db)
     row = Role(
@@ -43,7 +43,7 @@ async def create_role(db: AsyncSession, body) -> Role:
 async def patch_role(db: AsyncSession, code: str, body) -> Role:
     row = await db.get(Role, code)
     if row is None:
-        raise HTTPException(status_code=404, detail="角色不存在")
+        raise account_error(404, "ROLE_NOT_FOUND")
     if body.name is not None:
         row.name = body.name.strip()
     if body.sort_order is not None:
@@ -56,7 +56,7 @@ async def patch_role(db: AsyncSession, code: str, body) -> Role:
         await _clear_default_role(db)
         row.is_default = True
     elif body.is_default is False and row.is_default:
-        raise HTTPException(status_code=400, detail="请先把另一个角色设为默认")
+        raise account_error(400, "ROLE_DEFAULT_REQUIRED")
     await db.commit()
     await db.refresh(row)
     return row
@@ -65,12 +65,12 @@ async def patch_role(db: AsyncSession, code: str, body) -> Role:
 async def delete_role(db: AsyncSession, code: str) -> None:
     row = await db.get(Role, code)
     if row is None:
-        raise HTTPException(status_code=404, detail="角色不存在")
+        raise account_error(404, "ROLE_NOT_FOUND")
     if row.is_default:
-        raise HTTPException(status_code=400, detail="不能删除默认角色")
+        raise account_error(400, "ROLE_DEFAULT_DELETE")
     used = await db.scalar(select(func.count()).select_from(User).where(User.role == code))
     if used:
-        raise HTTPException(status_code=409, detail="仍有用户使用该角色")
+        raise account_error(409, "ROLE_IN_USE")
     await db.delete(row)
     await db.commit()
 
@@ -78,9 +78,9 @@ async def delete_role(db: AsyncSession, code: str) -> None:
 async def create_tier(db: AsyncSession, body) -> UserTier:
     code = (body.code or "").strip()
     if not code:
-        raise HTTPException(status_code=400, detail="等级代码无效")
+        raise account_error(400, "TIER_CODE_INVALID")
     if await db.get(UserTier, code):
-        raise HTTPException(status_code=409, detail="等级已存在")
+        raise account_error(409, "TIER_EXISTS")
     if body.is_default:
         await _clear_default_tier(db)
     row = UserTier(
@@ -100,7 +100,7 @@ async def create_tier(db: AsyncSession, body) -> UserTier:
 async def patch_tier(db: AsyncSession, code: str, body) -> UserTier:
     row = await db.get(UserTier, code)
     if row is None:
-        raise HTTPException(status_code=404, detail="等级不存在")
+        raise account_error(404, "TIER_NOT_FOUND")
     if body.name is not None:
         row.name = body.name.strip()
     if body.sort_order is not None:
@@ -113,7 +113,7 @@ async def patch_tier(db: AsyncSession, code: str, body) -> UserTier:
         await _clear_default_tier(db)
         row.is_default = True
     elif body.is_default is False and row.is_default:
-        raise HTTPException(status_code=400, detail="请先把另一个等级设为默认")
+        raise account_error(400, "TIER_DEFAULT_REQUIRED")
     await db.commit()
     await db.refresh(row)
     return row
@@ -122,14 +122,14 @@ async def patch_tier(db: AsyncSession, code: str, body) -> UserTier:
 async def delete_tier(db: AsyncSession, code: str) -> None:
     row = await db.get(UserTier, code)
     if row is None:
-        raise HTTPException(status_code=404, detail="等级不存在")
+        raise account_error(404, "TIER_NOT_FOUND")
     if row.is_default:
-        raise HTTPException(status_code=400, detail="不能删除默认等级")
+        raise account_error(400, "TIER_DEFAULT_DELETE")
     used = await db.scalar(
         select(func.count()).select_from(UserTierAssignment).where(UserTierAssignment.tier_code == code)
     )
     if used:
-        raise HTTPException(status_code=409, detail="仍有用户属于该等级")
+        raise account_error(409, "TIER_IN_USE")
     await db.delete(row)
     await db.commit()
 
@@ -137,7 +137,7 @@ async def delete_tier(db: AsyncSession, code: str) -> None:
 async def set_user_tier(db: AsyncSession, user: User, tier_code: str) -> None:
     tier = await db.get(UserTier, tier_code)
     if tier is None:
-        raise HTTPException(status_code=400, detail="等级不存在")
+        raise account_error(400, "TIER_NOT_FOUND")
     row = await db.get(UserTierAssignment, user.id)
     if row is None:
         db.add(UserTierAssignment(user_id=user.id, tier_code=tier.code))
@@ -148,25 +148,18 @@ async def set_user_tier(db: AsyncSession, user: User, tier_code: str) -> None:
 
 async def apply_admin_user_patch(db, user: User, body) -> User:
     if body.is_admin is not None:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "ADMIN_FLAG_IMMUTABLE", "message": "is_admin 只能由宿主写入，接口不能修改"},
-        )
+        raise account_error(400, "ADMIN_FLAG_IMMUTABLE", as_dict=True)
     if user.is_admin:
         if body.is_active is False:
-            raise HTTPException(
-                status_code=400,
-                detail={"code": "ADMIN_DEACTIVATE_FORBIDDEN", "message": "不能停用管理员账号"},
-            )
+            raise account_error(400, "ADMIN_DEACTIVATE_FORBIDDEN", as_dict=True)
         if body.approval_status is not None and body.approval_status != "approved":
-            raise HTTPException(
-                status_code=400,
-                detail={"code": "ADMIN_DEACTIVATE_FORBIDDEN", "message": "不能撤销管理员的审批"},
+            raise account_error(
+                400, "ADMIN_DEACTIVATE_FORBIDDEN", as_dict=True, message_key="ADMIN_DEACTIVATE_FORBIDDEN_APPROVAL"
             )
     if body.role is not None:
         code = assert_role_code(body.role)
         if await db.get(Role, code) is None:
-            raise HTTPException(status_code=400, detail="角色不存在")
+            raise account_error(400, "ROLE_NOT_FOUND")
         user.role = code
     if body.is_active is not None:
         user.is_active = body.is_active

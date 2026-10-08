@@ -17,6 +17,7 @@ from account_kit.audit import audit, request_ip
 from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_current_user_allow_query_token, get_db, user_from_access_token
 from account_kit.emailer import send_code_email
+from account_kit.i18n import account_error, error_code_of, t
 from account_kit.models import RefreshToken, VerificationCode
 from account_kit.otp import (
     OTP_PURPOSES,
@@ -94,17 +95,17 @@ async def send_code(
 ):
     config = get_config()
     if req.purpose not in OTP_PURPOSES:
-        raise HTTPException(status_code=400, detail="Invalid purpose")
+        raise account_error(400, "INVALID_PURPOSE")
     email = normalize_email(req.email)
     if req.purpose == "change_password":
         if not token:
-            raise HTTPException(status_code=401, detail="Could not validate credentials")
+            raise account_error(401, "AUTH_INVALID")
         current = await user_from_access_token(db, token)
         if normalize_email(current.email) != email:
-            raise HTTPException(status_code=400, detail="只能向当前账号邮箱发送验证码")
+            raise account_error(400, "EMAIL_MISMATCH")
     if req.purpose == "register" and not email_allowed(config, email):
         allowed = ", ".join(config.allowed_email_domains)
-        raise HTTPException(status_code=400, detail=f"仅允许带有以下后缀的邮箱注册: {allowed}")
+        raise account_error(400, "EMAIL_DOMAIN_NOT_ALLOWED", params={"allowed": allowed})
 
     await guard_send(db, config, request, email, req.purpose)
     await assert_resend_allowed(db, email, req.purpose)
@@ -121,7 +122,7 @@ async def send_code(
         await create_code(db, config.code_secret(), email, req.purpose, code)
         await reset_attempts(db, config, email, req.purpose)
         await _deliver(config, background_tasks, email, req.purpose, code, req.language)
-    return StatusResponse(status="success", detail="验证码已发送")
+    return StatusResponse(status="success", detail=t("CODE_SENT"))
 
 
 @router.post("/verify-code", response_model=StatusResponse)
@@ -130,8 +131,8 @@ async def verify_code(req: VerifyCodeRequest, request: Request, db: AsyncSession
     await run_before_action(config, request, "verify_code", {"email": normalize_email(req.email), "purpose": req.purpose})
     await check_code(db, config, req.email, req.purpose, req.code, consume=False)
     if req.purpose == "register" and await get_user_by_email(db, req.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    return StatusResponse(status="success", detail="验证码有效")
+        raise account_error(400, "EMAIL_TAKEN")
+    return StatusResponse(status="success", detail=t("CODE_VALID"))
 
 
 @router.post("/register", response_model=UserResponse)
@@ -195,9 +196,13 @@ async def login(
             ip=ip,
         )
     except HTTPException as exc:
-        invalid = exc.status_code == 401 and exc.detail == captcha.INVALID_CREDENTIALS_MESSAGE
+        invalid = exc.status_code == 401 and error_code_of(exc) == "INVALID_CREDENTIALS"
         if invalid or exc.status_code == 403:
-            meta = {"username": name[:50], "reason": "invalid_credentials" if invalid else str(exc.detail)[:64]}
+            if invalid:
+                reason = "invalid_credentials"
+            else:
+                reason = (error_code_of(exc) or str(exc.detail))[:64]
+            meta = {"username": name[:50], "reason": reason}
             if config.audit_admin_login:
                 meta["is_admin"] = bool(candidate.is_admin) if candidate is not None else False
             await audit(
@@ -243,7 +248,7 @@ async def reset(payload: ResetPasswordRequest, request: Request, db: AsyncSessio
     user = await reset_password(db, config, payload.email, payload.code, payload.new_password)
     if user is not None:
         await audit(db, config, audit_mod.PASSWORD_RESET, user_id=user.id, request=request)
-    return StatusResponse(status="success", detail="密码重置成功")
+    return StatusResponse(status="success", detail=t("PASSWORD_RESET_OK"))
 
 
 @router.post("/change-password", response_model=StatusResponse)
@@ -265,7 +270,7 @@ async def change_password_endpoint(
         code=payload.code,
     )
     await audit(db, config, audit_mod.PASSWORD_CHANGED, user_id=user_id, request=request)
-    return StatusResponse(status="success", detail="密码修改成功")
+    return StatusResponse(status="success", detail=t("PASSWORD_CHANGED_OK"))
 
 
 @router.post("/refresh", response_model=TokenResponse, response_model_exclude_none=True)
@@ -275,11 +280,11 @@ async def refresh_tokens(body: RefreshRequest, request: Request, db: AsyncSessio
 
     config = get_config()
     if not config.refresh_token_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise account_error(404, "NOT_FOUND")
     await run_before_action(config, request, "refresh", {})
     row = await find_token(db, body.refresh_token, lock=True)
     if row is None:
-        raise refresh_error("REFRESH_INVALID", "登录已失效，请重新登录")
+        raise refresh_error("REFRESH_INVALID")
     now = datetime.now(timezone.utc)
     if row.revoked_at is not None:
         if row.revoked_reason == "rotated":
@@ -290,26 +295,26 @@ async def refresh_tokens(body: RefreshRequest, request: Request, db: AsyncSessio
                 _clear_session(user)
             await db.commit()
             await audit(db, config, audit_mod.REFRESH_REUSE, user_id=user_id, request=request, meta={"family_id": str(family)})
-            raise refresh_error("REFRESH_REUSED", "检测到登录凭证被重复使用，已强制下线，请重新登录")
-        raise refresh_error("REFRESH_INVALID", "登录已失效，请重新登录")
+            raise refresh_error("REFRESH_REUSED")
+        raise refresh_error("REFRESH_INVALID")
     expires = row.expires_at if row.expires_at.tzinfo else row.expires_at.replace(tzinfo=timezone.utc)
     if expires <= now:
-        raise refresh_error("REFRESH_EXPIRED", "登录已过期，请重新登录")
+        raise refresh_error("REFRESH_EXPIRED")
     user = await get_user_by_id(db, row.user_id)
     if user is None:
-        raise refresh_error("REFRESH_INVALID", "登录已失效，请重新登录")
+        raise refresh_error("REFRESH_INVALID")
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
+        raise account_error(status.HTTP_403_FORBIDDEN, "USER_DISABLED")
     if user.approval_status != "approved":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号尚未通过审批")
+        raise account_error(status.HTTP_403_FORBIDDEN, "ACCOUNT_PENDING")
     if user.is_admin and config.admin_refresh_disabled:
-        raise refresh_error("REFRESH_INVALID", "登录已失效，请重新登录")
+        raise refresh_error("REFRESH_INVALID")
     session_id = None
     if config.session_mode == "single_device":
         if not row.session_id or row.session_id != user.current_session_id:
             await revoke_family(db, row.family_id, "session_replaced")
             await db.commit()
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="SESSION_REPLACED")
+            raise account_error(status.HTTP_401_UNAUTHORIZED, "SESSION_REPLACED")
         session_id = row.session_id
         user.session_last_seen_at = now
     raw, new_row = await issue_refresh_token(
@@ -475,9 +480,7 @@ async def _cooldown(db: AsyncSession, email: str, purpose: str, window: timedelt
     if last is not None:
         last = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
         if datetime.now(timezone.utc) - last < window:
-            raise HTTPException(
-                status_code=429, detail={"code": "EMAIL_CODE_TOO_FREQUENT", "message": "验证码发送频繁，请稍后再试"}
-            )
+            raise account_error(429, "EMAIL_CODE_TOO_FREQUENT", as_dict=True)
 
 
 @router.post("/me/email/send-code")
@@ -494,9 +497,9 @@ async def send_change_email_code(
     config = get_config()
     nxt = await assert_email_available(db, config, current_user, body.new_email)
     if nxt == current_user.email:
-        raise HTTPException(status_code=400, detail="新邮箱与当前邮箱相同")
+        raise account_error(400, "EMAIL_UNCHANGED")
     if body.password is not None and not verify_password(body.password, current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="当前密码错误")
+        raise account_error(400, "PASSWORD_INCORRECT")
     await run_before_action(config, request, "change_email", {"user": current_user, "email": nxt})
     await guard_send(db, config, request, nxt, PURPOSE_CHANGE_EMAIL)
     await _cooldown(db, nxt, PURPOSE_CHANGE_EMAIL, CHANGE_EMAIL_COOLDOWN)
@@ -506,7 +509,7 @@ async def send_change_email_code(
     await _deliver(config, background_tasks, nxt, PURPOSE_CHANGE_EMAIL, code, body.language)
     return {
         "status": "success",
-        "detail": "验证码已发送",
+        "detail": t("CODE_SENT"),
         "email": mask_email(nxt),
         "expires_in": int(OTP_TTL.total_seconds()),
         "cooldown": int(CHANGE_EMAIL_COOLDOWN.total_seconds()),
@@ -532,7 +535,7 @@ async def confirm_change_email(
 
 def _require_self_delete(config) -> None:
     if not config.self_delete_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise account_error(404, "NOT_FOUND")
 
 
 @router.post("/me/delete/email-code")
@@ -549,12 +552,12 @@ async def send_delete_email_code(
     config = get_config()
     _require_self_delete(config)
     if not config.two_factor_email_enabled:
-        raise HTTPException(status_code=404, detail="Not found")
+        raise account_error(404, "NOT_FOUND")
     if not await is_enabled(db, current_user.id):
-        raise HTTPException(status_code=400, detail={"code": "TWO_FACTOR_NOT_ENABLED", "message": "两步验证未开启"})
+        raise account_error(400, "TWO_FACTOR_NOT_ENABLED", as_dict=True)
     await run_before_action(config, request, "delete_account", {"user": current_user})
     await guard_send(db, config, request, current_user.email, PURPOSE_DELETE_ACCOUNT)
-    return await send_email_code(db, config, current_user, PURPOSE_DELETE_ACCOUNT, body.language or "zh", background_tasks)
+    return await send_email_code(db, config, current_user, PURPOSE_DELETE_ACCOUNT, body.language, background_tasks)
 
 
 async def _delete_me(body: DeleteAccountRequest, request: Request, current_user, db: AsyncSession):
@@ -564,15 +567,13 @@ async def _delete_me(body: DeleteAccountRequest, request: Request, current_user,
     _require_self_delete(config)
     await run_before_action(config, request, "delete_account", {"user": current_user})
     if not verify_password(body.password or "", current_user.hashed_password):
-        raise HTTPException(status_code=400, detail="当前密码错误")
+        raise account_error(400, "PASSWORD_INCORRECT")
     if current_user.is_admin:
-        raise HTTPException(
-            status_code=400, detail={"code": "ADMIN_SELF_DELETE_FORBIDDEN", "message": "管理员账号不能自助注销"}
-        )
+        raise account_error(400, "ADMIN_SELF_DELETE_FORBIDDEN", as_dict=True)
     if config.two_factor_enabled and await is_enabled(db, current_user.id):
         code, recovery, email_code = body.code or "", body.recovery_code or "", body.email_code or ""
         if not code and not recovery and not email_code:
-            raise HTTPException(status_code=400, detail={"code": "MFA_CODE_REQUIRED", "message": "请输入两步验证码"})
+            raise account_error(400, "MFA_CODE_REQUIRED", as_dict=True, message_key="MFA_CODE_REQUIRED_DELETE")
         await verify_second_factor(
             db,
             config,
@@ -654,20 +655,37 @@ async def get_user_avatar(
 
 
 def mount_account(app, get_db, config) -> None:
-    from account_kit.config import set_config
+    from fastapi.exceptions import RequestValidationError
 
+    from account_kit.config import set_config
     from account_kit.admin_router import admin_router, public_extra
+    from account_kit.i18n import (
+        AccountError,
+        LocaleMiddleware,
+        account_error_handler,
+        attach_locale_dependency,
+        validation_error_handler,
+    )
     from account_kit.two_factor.router import admin as two_factor_admin
     from account_kit.two_factor.router import router as two_factor_router
 
     set_config(config)
     app.state.account_get_db = get_db
+    app.add_middleware(LocaleMiddleware)
+    app.add_exception_handler(AccountError, account_error_handler)
+    if config.localize_validation:
+        app.add_exception_handler(RequestValidationError, validation_error_handler)
     extra = APIRouter(tags=["auth"])
     if config.logout_enabled:
         path = "/" + (config.logout_path or "/logout").strip().lstrip("/")
         extra.add_api_route(path, logout, methods=["POST"])
     if config.captcha_builtin:
         extra.add_api_route("/captcha", get_builtin_captcha, methods=["GET"])
+    routers = [router, extra, public_extra, admin_router]
+    if config.two_factor_enabled:
+        routers.extend([two_factor_router, two_factor_admin])
+    for mounted in routers:
+        attach_locale_dependency(mounted)
     app.include_router(router, prefix=config.api_prefix)
     app.include_router(extra, prefix=config.api_prefix)
     app.include_router(public_extra, prefix=config.api_prefix)

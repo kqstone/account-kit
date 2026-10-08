@@ -1,4 +1,5 @@
-import { mergeLabels, resolveLocale, type DeepPartial } from "./utils"
+import { defaultErrorLabels } from "./errors"
+import { mergeLabels, resolveLocale, type DeepPartial, type KitLocale } from "./utils"
 
 export type TwoFactorLabels = {
   title: string
@@ -15,6 +16,10 @@ export type TwoFactorLabels = {
   copy: string
   copied: string
   download: string
+  recoveryFileTitle: string
+  recoveryFileAccount: string
+  recoveryFileGenerated: string
+  recoveryFileOnce: string
   currentPassword: string
   enterCode: string
   recoveryCode: string
@@ -117,9 +122,44 @@ export type ProfileLabels = {
   captchaLoadFailed: string
 }
 
+export type FormLabels = {
+  username: string
+  password: string
+  email: string
+  fullNameOptional: string
+  institutionOptional: string
+  genderOptional: string
+  genderUnspecified: string
+  genderMale: string
+  genderFemale: string
+  birthOptional: string
+  code: string
+  sendCode: string
+  sending: string
+  role: string
+  roleDefault: string
+  newPassword: string
+  submit: string
+  submitting: string
+  register: string
+  login: string
+  loggingIn: string
+  forceLogin: string
+  resetPassword: string
+  captcha: string
+  captchaPlaceholder: string
+  captchaRefresh: string
+  captchaLoadFailed: string
+  captchaEnter: string
+  captchaInvalid: string
+  alreadyLoggedIn: string
+  error: string
+  errors: Record<string, string>
+}
+
 const twoFactorZh: TwoFactorLabels = {
-  title: "两步验证（2FA）",
-  description: "开启后，登录时除密码外还需输入验证器 App（如 Google Authenticator）生成的 6 位动态码。",
+  title: "两步验证",
+  description: "开启后，登录时除密码外还需输入验证器应用（如谷歌身份验证器）生成的 6 位动态码。",
   statusOn: "已开启",
   statusOff: "未开启",
   enable: "启用两步验证",
@@ -131,12 +171,16 @@ const twoFactorZh: TwoFactorLabels = {
   verifying: "验证中…",
   copy: "复制",
   copied: "已复制到剪贴板",
-  download: "下载 .txt",
+  download: "下载文本文件",
+  recoveryFileTitle: "{brand} - 两步验证恢复码",
+  recoveryFileAccount: "账号: {username}",
+  recoveryFileGenerated: "生成时间: {time}",
+  recoveryFileOnce: "每个恢复码只能使用一次",
   currentPassword: "当前密码",
   enterCode: "验证器中的 6 位验证码",
   recoveryCode: "恢复码",
-  scanStep1: "在手机上打开验证器 App，扫描下方二维码（或手动输入密钥）。",
-  scanStep2: "输入 App 显示的 6 位验证码完成绑定。",
+  scanStep1: "在手机上打开验证器应用，扫描下方二维码（或手动输入密钥）。",
+  scanStep2: "输入应用显示的 6 位验证码完成绑定。",
   manualEntry: "无法扫码？手动输入密钥：",
   recoveryTitle: "请保存恢复码",
   recoveryHint: "手机丢失或无法使用验证器时，可用恢复码登录。每个恢复码只能使用一次，且仅显示这一次，请妥善保存。",
@@ -146,8 +190,8 @@ const twoFactorZh: TwoFactorLabels = {
   disabledOk: "两步验证已关闭",
   disableTitle: "关闭两步验证",
   regenerateTitle: "重新生成恢复码（旧恢复码将全部失效）",
-  disableHint: "关闭需要验证当前密码，并输入验证器验证码或恢复码；无法使用验证器时可选择“跳过 2FA”，改用邮箱验证码。关闭后所有受信设备与恢复码将一并失效。",
-  skipDisable: "跳过 2FA（改用邮箱验证码）",
+  disableHint: "关闭需要验证当前密码，并输入验证器验证码或恢复码；无法使用验证器时可选择“跳过两步验证”，改用邮箱验证码。关闭后所有受信设备与恢复码将一并失效。",
+  skipDisable: "跳过两步验证（改用邮箱验证码）",
   emailCode: "邮箱验证码",
   emailCodePlaceholder: "6 位邮箱验证码",
   sendEmailCode: "发送验证码",
@@ -163,17 +207,17 @@ const twoFactorZh: TwoFactorLabels = {
   loading: "加载中…",
   cancel: "取消",
   error: "请求失败",
-  qrUnavailable: "未能生成二维码，请使用下方密钥手动添加。可安装 qrcode 或传入 renderQr。",
+  qrUnavailable: "未能生成二维码，请使用下方密钥手动添加。",
   login: {
     title: "两步验证",
-    hint: "请输入验证器 App 中显示的 6 位验证码。",
+    hint: "请输入验证器应用 中显示的 6 位验证码。",
     recoveryHint: "请输入一个未使用过的恢复码（格式 xxxx-xxxx）。",
     trustDevice: "这是我的私人设备（{days} 天内免验证）",
     useRecovery: "使用恢复码",
     useApp: "使用验证器验证码",
     emailTitle: "邮箱验证码登录",
     emailHint: "验证码已发送到账号绑定的邮箱，输入后即可登录。两步验证仍保持开启。",
-    skip: "跳过 2FA（发送邮箱验证码登录）",
+    skip: "跳过两步验证（发送邮箱验证码登录）",
     alreadyLoggedInTitle: "已在其他设备登录",
     alreadyLoggedInBody: "该账号已在设备「{device}」登录。强制登录将注销其他端。",
     unsavedDataWarning: "其他端未保存的数据可能丢失。",
@@ -216,6 +260,10 @@ const twoFactorEn: TwoFactorLabels = {
   copy: "Copy",
   copied: "Copied to clipboard",
   download: "Download .txt",
+  recoveryFileTitle: "{brand} - 2FA recovery codes",
+  recoveryFileAccount: "Account: {username}",
+  recoveryFileGenerated: "Generated: {time}",
+  recoveryFileOnce: "Each code can be used once.",
   currentPassword: "Current password",
   enterCode: "6-digit code from your authenticator",
   recoveryCode: "Recovery code",
@@ -383,13 +431,130 @@ const profileEn: ProfileLabels = {
   captchaLoadFailed: "Could not load the captcha, click to retry",
 }
 
-export const defaultTwoFactorLabels = { zh: twoFactorZh, en: twoFactorEn }
-export const defaultProfileLabels = { zh: profileZh, en: profileEn }
-
-export function resolveTwoFactorLabels(language?: string, override?: DeepPartial<TwoFactorLabels> | null): TwoFactorLabels {
-  return mergeLabels(defaultTwoFactorLabels[resolveLocale(language)], override)
+const formZh: FormLabels = {
+  username: "用户名",
+  password: "密码",
+  email: "邮箱",
+  fullNameOptional: "姓名（可选）",
+  institutionOptional: "机构（可选）",
+  genderOptional: "性别（可选）",
+  genderUnspecified: "未指定",
+  genderMale: "男",
+  genderFemale: "女",
+  birthOptional: "出生年月（可选）",
+  code: "验证码",
+  sendCode: "发送验证码",
+  sending: "发送中…",
+  role: "角色",
+  roleDefault: "默认",
+  newPassword: "新密码",
+  submit: "提交中…",
+  submitting: "提交中…",
+  register: "注册",
+  login: "登录",
+  loggingIn: "登录中…",
+  forceLogin: "强制登录",
+  resetPassword: "重置密码",
+  captcha: "图形验证码",
+  captchaPlaceholder: "输入图中字符",
+  captchaRefresh: "换一张",
+  captchaLoadFailed: "验证码加载失败，请点击换一张",
+  captchaEnter: "请输入图形验证码",
+  captchaInvalid: "图形验证码错误或已失效，请重试",
+  alreadyLoggedIn: "该账号已在{device}登录，再次提交将挤掉该设备",
+  error: "请求失败",
+  errors: { ...defaultErrorLabels["zh-CN"] },
 }
 
-export function resolveProfileLabels(language?: string, override?: DeepPartial<ProfileLabels> | null): ProfileLabels {
-  return mergeLabels(defaultProfileLabels[resolveLocale(language)], override)
+const formEn: FormLabels = {
+  username: "Username",
+  password: "Password",
+  email: "Email",
+  fullNameOptional: "Full name (optional)",
+  institutionOptional: "Institution (optional)",
+  genderOptional: "Gender (optional)",
+  genderUnspecified: "Unspecified",
+  genderMale: "Male",
+  genderFemale: "Female",
+  birthOptional: "Birth month (optional)",
+  code: "Code",
+  sendCode: "Send code",
+  sending: "Sending…",
+  role: "Role",
+  roleDefault: "Default",
+  newPassword: "New password",
+  submit: "Submitting…",
+  submitting: "Submitting…",
+  register: "Register",
+  login: "Sign in",
+  loggingIn: "Signing in…",
+  forceLogin: "Force sign-in",
+  resetPassword: "Reset password",
+  captcha: "Captcha",
+  captchaPlaceholder: "Enter the characters",
+  captchaRefresh: "New image",
+  captchaLoadFailed: "Could not load the captcha, click to retry",
+  captchaEnter: "Please enter the captcha",
+  captchaInvalid: "Captcha is wrong or expired, please retry",
+  alreadyLoggedIn: "This account is signed in on {device}. Submit again to replace that session.",
+  error: "Request failed",
+  errors: { ...defaultErrorLabels.en },
+}
+
+export const defaultTwoFactorLabels: Record<KitLocale, TwoFactorLabels> = { "zh-CN": twoFactorZh, en: twoFactorEn }
+export const defaultProfileLabels: Record<KitLocale, ProfileLabels> = { "zh-CN": profileZh, en: profileEn }
+export const defaultFormLabels: Record<KitLocale, FormLabels> = { "zh-CN": formZh, en: formEn }
+
+export type AccountLocaleMessages = {
+  forms: FormLabels
+  profile: ProfileLabels
+  twoFactor: TwoFactorLabels
+  errors: Record<string, string>
+}
+
+export type AccountMessagesOverride = Partial<Record<KitLocale, DeepPartial<AccountLocaleMessages>>>
+
+function overlayProviderErrors<T extends object>(base: T, providerErrors?: Record<string, string>): T {
+  if (!providerErrors || !("errors" in base) || !base.errors || typeof base.errors !== "object") return base
+  return { ...base, errors: { ...(base.errors as Record<string, string>), ...providerErrors } }
+}
+
+function resolveSection<T extends object>(
+  base: T,
+  messages: AccountMessagesOverride | null | undefined,
+  language: string | undefined,
+  section: "forms" | "profile" | "twoFactor",
+  override?: DeepPartial<T> | null,
+): T {
+  const provider = messages?.[resolveLocale(language)]
+  const withSection = mergeLabels(base, provider?.[section] as DeepPartial<T> | undefined)
+  const providerErrors = provider?.errors as Record<string, string> | undefined
+  return mergeLabels(overlayProviderErrors(withSection, providerErrors), override)
+}
+
+export function resolveTwoFactorLabels(
+  language?: string,
+  override?: DeepPartial<TwoFactorLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): TwoFactorLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultTwoFactorLabels[loc], messages, loc, "twoFactor", override)
+}
+
+export function resolveProfileLabels(
+  language?: string,
+  override?: DeepPartial<ProfileLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): ProfileLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultProfileLabels[loc], messages, loc, "profile", override)
+}
+
+export function resolveFormLabels(
+  language?: string,
+  override?: DeepPartial<FormLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): FormLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultFormLabels[loc], messages, loc, "forms", override)
 }

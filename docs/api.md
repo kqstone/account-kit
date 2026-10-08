@@ -45,13 +45,13 @@
     "refresh_expires_in": 2592000     // 刷新令牌过期秒数
   }
   ```
-- **异常响应**:
-  - `401 Unauthorized`: 密码错误，返回 `detail="Incorrect username or password"`；若开启了图形验证码，响应体包含 `{"captcha_required": true}`。
-  - `428 Precondition Required`: 密码连续输错达到阈值，要求输入图形验证码。`detail={"code": "CAPTCHA_REQUIRED", "message": "请输入图形验证码", "captcha_required": true}`。
-  - `400 Bad Request`: 图形验证码输入错误。`detail={"code": "CAPTCHA_INVALID", "message": "图形验证码错误，请重新输入", "captcha_required": true}`。
-  - `403 Forbidden`: 账号已停用 (`"User is disabled"`) 或注册未审批 (`"账号尚未通过审批"`)。
-  - `409 Conflict`: 单设备模式下已被其他设备登录。`detail={"code": "ALREADY_LOGGED_IN", "message": "该账号已在其它设备登录", "current_device": "..."}`。
-  - `401 Unauthorized (MFA)`: 触发两步验证。`detail={"code": "MFA_REQUIRED", "message": "需要两步验证", "challenge_token": "...", "email_available": bool, "methods": ["totp", "recovery", "email"]}`。
+- **异常响应**（默认 `zh-CN` 文案；`X-Locale: en` 为英文。顶层另有 `code`，见第 8 节）:
+  - `401 Unauthorized`: 密码错误。未开 captcha 时 `detail` 为字符串「用户名或密码错误」；开启 captcha 后 `detail` 为对象，含 `captcha_required`。
+  - `428 Precondition Required`: 连续密码错误达到阈值。`detail={"code": "CAPTCHA_REQUIRED", "message": "需要图形验证码", "captcha_required": true}`。
+  - `400 Bad Request`: 图形验证码错误或已失效。`detail={"code": "CAPTCHA_INVALID", "message": "图形验证码错误或已失效", "captcha_required": true}`。
+  - `403 Forbidden`: 账号已停用（「账号已被停用」）或注册未审批（「账号尚未通过审批」）。
+  - `409 Conflict`: 单设备模式下已在其他设备登录。`detail={"code": "ALREADY_LOGGED_IN", "message": "该账号已在其他设备登录", "device_name": "..."}`。
+  - `401 Unauthorized (MFA)`: 账号已开启两步验证。`detail={"code": "MFA_REQUIRED", "message": "该账号已开启两步验证，请升级客户端", "challenge_token": "...", "email_available": bool, "methods": ["totp", "recovery", "email"]}`。
 
 ---
 
@@ -381,34 +381,121 @@
 
 ## 8. 通用错误响应与业务错误码
 
-当接口发生异常时，统一返回符合规范的 JSON 错误响应。业务级错误结构形如：
+kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值时还有 `params`）。`detail` 的类型保持历史形状：字符串仍是字符串，对象仍是对象。宿主 `HTTPException` 不被改写。语言见 [i18n.md](i18n.md)。
+
+字符串形：
+
+```json
+{"detail": "用户名或密码错误", "code": "INVALID_CREDENTIALS"}
+```
+
+对象形（附加字段在 `detail` 内）：
+
 ```json
 {
   "detail": {
-    "code": "ERROR_CODE",
-    "message": "人类可读的错误说明"
-  }
+    "code": "CAPTCHA_REQUIRED",
+    "message": "需要图形验证码",
+    "captcha_required": true
+  },
+  "code": "CAPTCHA_REQUIRED"
 }
 ```
 
-### 核心业务错误码一览表
+下表 `detail` 列为默认形状；开启 captcha 时 `INVALID_CREDENTIALS` 变为对象并带 `captcha_required`。`ADMIN_SELF_DELETE_FORBIDDEN` 是 **400**。`SESSION_REPLACED` 的 `detail` 在两种语言下都是字面量 `SESSION_REPLACED`。
 
-| 错误码 (code) | HTTP 状态码 | 说明与触发场景 |
-| :--- | :--- | :--- |
-| `RATE_LIMITED` | 429 | 请求触发安全频控限流，响应头包含 `Retry-After` 秒数 |
-| `CAPTCHA_REQUIRED` | 428 | 连续密码错误达到阈值，登录必须输入图形验证码 |
-| `CAPTCHA_INVALID` | 400 | 图形验证码校验失败或已过期 |
-| `ALREADY_LOGGED_IN` | 409 | 单设备模式下账号已在其他客户端保持会话 |
-| `MFA_REQUIRED` | 401 | 账号已开启 2FA，登录需进一步提供第二因素 |
-| `MFA_CHALLENGE_INVALID` | 401 | 登录 2FA 挑战已过期或已被销毁，需重新输入密码 |
-| `MFA_CODE_REQUIRED` | 400 | 未提供 2FA 验证码或应急恢复码 |
-| `MFA_CODE_INVALID` | 400 / 401 | 2FA 验证码错误（附带 `attempts_left` 剩余次数） |
-| `MFA_TOO_MANY_ATTEMPTS` | 401 | 2FA 挑战错误次数超限，挑战作废 |
-| `REFRESH_INVALID` | 401 | 刷新令牌不存在或已失效 |
-| `REFRESH_EXPIRED` | 401 | 刷新令牌已超过有效期 |
-| `REFRESH_REUSED` | 401 | 刷新令牌被重放，触发防护已下线全部会话 |
-| `SESSION_REPLACED` | 401 | 会话已在其它设备重新登录 |
-| `EMAIL_CODE_TOO_FREQUENT` | 429 | 换绑邮箱验证码发送过于频繁（60 秒冷却） |
-| `EMAIL_VERIFICATION_REQUIRED`| 400 | 在 `PATCH /me` 修改邮箱时缺少验证码或密码 |
-| `EMAIL_CHANGE_VIA_ENDPOINT` | 400 | `profile_email_change="reject"` 时拒绝在 PATCH 改邮箱 |
-| `ADMIN_SELF_DELETE_FORBIDDEN` | 403 | 管理员账号禁止执行自助注销操作 |
+| code | HTTP | detail | 附加字段 | zh-CN | en |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `INVALID_CREDENTIALS` | 401 | string / dict | captcha 开启时 `captcha_required` | 用户名或密码错误 | Incorrect username or password |
+| `AUTH_INVALID` | 401 | string | | 登录状态无效，请重新登录 | Could not validate credentials |
+| `USER_DISABLED` | 403 | string | | 账号已被停用 | This account has been disabled |
+| `ACCOUNT_PENDING` | 403 | string | | 账号尚未通过审批 | This account is pending approval |
+| `SESSION_REPLACED` | 401 | string | | `SESSION_REPLACED` | `SESSION_REPLACED` |
+| `NOT_FOUND` | 404 | string | | 资源不存在 | Not found |
+| `ADMIN_REQUIRED` | 403 | string | | 需要管理员权限 | Admin required |
+| `INVALID_PURPOSE` | 400 | string | | 用途无效 | Invalid purpose |
+| `ALREADY_LOGGED_IN` | 409 | dict | `device_name` | 该账号已在其他设备登录 | This account is already signed in on another device |
+| `ACCOUNT_LOCKED` | 429 | dict | `retry_after`；头 `Retry-After` | 登录失败次数过多，请稍后再试 | Too many failed sign-in attempts, please try again later |
+| `RATE_LIMITED` | 429 | dict | `retry_after`；发信文案可用 `SEND_CODE_RATE_LIMITED` | 请求过于频繁，请稍后再试 | Too many requests, please try again later |
+| `CAPTCHA_REQUIRED` | 428 | dict | `captcha_required` | 需要图形验证码 | Captcha required |
+| `CAPTCHA_INVALID` | 400 | dict | `captcha_required` | 图形验证码错误或已失效 | Captcha is wrong or expired |
+| `CAPTCHA_DEPENDENCY_MISSING` | 501 | string | | 图形验证码需要 Pillow：`pip install "account-kit[captcha]"` | Image captcha needs Pillow: … |
+| `USERNAME_INVALID` | 400 | string | | 用户名无效 | Invalid username |
+| `USERNAME_RESERVED` | 400 | string | | 用户名不可用 | This username is not available |
+| `USERNAME_ADMIN_LIKE` | 400 | string | | 用户名不能包含管理员相关字符 | Username must not contain admin-related words |
+| `USERNAME_TAKEN` | 400 | string | | 该用户名已注册 | Username already registered |
+| `PASSWORD_TOO_SHORT` | 400 | string / dict | setup 路径为 dict | 密码过短 | Password is too short |
+| `PASSWORD_TOO_LONG` | 400 | string | | 密码过长 | Password is too long |
+| `PASSWORD_INCORRECT` | 400 | string | | 当前密码错误 | Current password is incorrect |
+| `OLD_PASSWORD_INCORRECT` | 400 | string | | 旧密码错误 | Current password is incorrect |
+| `PASSWORD_REQUIRED` | 400 | dict | | 管理员开启两步验证需要当前密码 | Admins must enter the current password to turn on two-factor authentication |
+| `EMAIL_TAKEN` | 400 | string | | 该邮箱已注册 | Email already registered |
+| `EMAIL_INVALID` | 400 | string | | 邮箱无效 | Invalid email |
+| `EMAIL_UNCHANGED` | 400 | string | | 新邮箱与当前邮箱相同 | New email is the same as the current email |
+| `EMAIL_MISMATCH` | 400 | string | | 只能向当前账号邮箱发送验证码 | Codes can only be sent to this account's email |
+| `EMAIL_DOMAIN_NOT_ALLOWED` | 400 | string | `params.allowed` | 仅允许带有以下后缀的邮箱注册: {allowed} | Only email addresses ending with the following domains may register: {allowed} |
+| `EMAIL_DOMAIN_NOT_ALLOWED_CHANGE` | 400 | string | `params.allowed` | 仅允许使用以下后缀的邮箱: {allowed} | Only email addresses ending with the following domains are allowed: {allowed} |
+| `EMAIL_NOT_REGISTERED` | 404 | string | | 该邮箱未注册账号 | No account is registered with this email |
+| `EMAIL_CHANGE_VIA_ENDPOINT` | 400 | dict | | 请通过 POST /me/email 修改邮箱 | Change email via POST /me/email |
+| `EMAIL_VERIFICATION_REQUIRED` | 400 | dict | | 修改邮箱需要新邮箱收到的验证码 | Changing email requires the code sent to the new address |
+| `EMAIL_CODE_REQUIRED` | 400 | dict | `email_code_required` | 请输入邮箱验证码 | Please enter the email verification code |
+| `EMAIL_CODE_TOO_FREQUENT` | 429 | dict | | 验证码发送频繁，请稍后再试 | Codes sent too often, please try again later |
+| `EMAIL_CODE_INVALID` | 400 | dict | | 邮箱验证码错误或已失效 | Email code is wrong or expired |
+| `EMAIL_CODE_LOCKED` | 400 | dict | | 验证码错误次数过多，请重新获取验证码 | Too many wrong codes, please request a new one |
+| `EMAIL_UNAVAILABLE` | 400 | dict | | 邮箱验证不可用 | Email verification is not available |
+| `CODE_INVALID` | 400 | string | | 验证码错误或已失效 | The code is wrong or expired |
+| `CODE_LOCKED` | 400 | string | | 验证码错误次数过多，请重新获取验证码 | Too many wrong codes, please request a new one |
+| `MFA_REQUIRED` | 401 | dict | `challenge_token`, `email_available`, `methods` | 该账号已开启两步验证，请升级客户端 | This account has two-factor authentication; please upgrade your client |
+| `MFA_CHALLENGE_INVALID` | 401 | dict | | 登录验证已过期，请重新输入密码登录 | Sign-in verification expired, please enter your password again |
+| `MFA_CODE_REQUIRED` | 400 | dict | 注销路径文案「请输入两步验证码」 | 请输入验证码 | Please enter the code |
+| `MFA_CODE_INVALID` | 400 | dict | `attempts_left`；恢复码文案「恢复码错误」 | 验证码错误 | Incorrect code |
+| `MFA_TOO_MANY_ATTEMPTS` | 401 | dict | | 验证码错误次数过多，请重新登录 | Too many wrong codes, please sign in again |
+| `MFA_ALREADY_VERIFIED` | 400 | dict | | 已完成验证 | Already verified |
+| `TWO_FACTOR_SETUP_REQUIRED` | 400 | string | | 请先开始设置两步验证 | Start two-factor setup first |
+| `TWO_FACTOR_NOT_ENABLED` | 400 | dict / string | | 两步验证未开启 | Two-factor authentication is not on |
+| `DEVICE_NOT_FOUND` | 404 | dict | | 设备不存在 | Device not found |
+| `REFRESH_INVALID` | 401 | dict | | 登录已失效，请重新登录 | Session expired, please sign in again |
+| `REFRESH_EXPIRED` | 401 | dict | | 登录已过期，请重新登录 | Session expired, please sign in again |
+| `REFRESH_REUSED` | 401 | dict | | 检测到登录凭证被重复使用，已强制下线，请重新登录 | A refresh token was reused; you have been signed out. Please sign in again |
+| `ADMIN_DELETE_FORBIDDEN` | 400 | dict | | 不能删除管理员账号 | Cannot delete an admin account |
+| `ADMIN_SELF_DELETE_FORBIDDEN` | 400 | dict | | 管理员账号不能自助注销 | Admin accounts cannot delete themselves |
+| `ADMIN_FLAG_IMMUTABLE` | 400 | dict | | 管理员标记只能由宿主写入，接口不能修改 | is_admin can only be written by the host, not this API |
+| `ADMIN_DEACTIVATE_FORBIDDEN` | 400 | dict | | 不能停用管理员账号 | Cannot deactivate an admin account |
+| `ADMIN_IP_FORBIDDEN` | 403 | string | | 当前网络地址不在管理员白名单 | This IP is not on the admin allowlist |
+| `ADMIN_2FA_REQUIRED` | 403 | string | | 管理员必须先启用两步验证 | Admins must enable two-factor authentication first |
+| `ADMIN_EMAIL_2FA_FORBIDDEN` | 400 | dict | | 管理员不能使用邮箱验证码作为登录第二因素 | Admins cannot use an email code as the login second factor |
+| `ADMIN_ALREADY_EXISTS` | 400 | dict | | 已存在管理员账号 | An admin account already exists |
+| `ADMIN_USERNAME_TAKEN` | 400 | dict | | 该用户名已存在且不是管理员，拒绝接管 | This username exists and is not admin; takeover refused |
+| `ADMIN_EMAIL_TAKEN` | 400 | dict | | 该邮箱已被占用 | This email is already in use |
+| `ROLE_RESERVED` | 400 | string | | “管理员”不是角色，请使用后台管理员标记 | admin is not a role; use the backend admin flag |
+| `ROLE_CODE_TOO_LONG` | 400 | string | | 角色代码过长 | Role code is too long |
+| `ROLE_INVALID` | 400 | string | | 角色无效 | Invalid role |
+| `ROLE_EXISTS` | 409 | string | | 角色已存在 | Role already exists |
+| `ROLE_NOT_FOUND` | 400 / 404 | string | | 角色不存在 | Role not found |
+| `ROLE_DEFAULT_REQUIRED` | 400 | string | | 请先把另一个角色设为默认 | Set another role as default first |
+| `ROLE_DEFAULT_DELETE` | 400 | string | | 不能删除默认角色 | Cannot delete the default role |
+| `ROLE_IN_USE` | 409 | string | | 仍有用户使用该角色 | The role is still assigned to users |
+| `ROLE_UNCHANGED` | 400 | string | | 已经是该角色 | Already this role |
+| `ROLE_CHANGE_PENDING` | 409 | string | | 已有待审核的角色申请 | A pending role-change request already exists |
+| `ROLE_CHANGE_NOT_FOUND` | 404 | string | | 申请不存在 | Request not found |
+| `TIER_CODE_INVALID` | 400 | string | | 等级代码无效 | Invalid tier code |
+| `TIER_EXISTS` | 409 | string | | 等级已存在 | Tier already exists |
+| `TIER_NOT_FOUND` | 400 / 404 | string | | 等级不存在 | Tier not found |
+| `TIER_DEFAULT_REQUIRED` | 400 | string | | 请先把另一个等级设为默认 | Set another tier as default first |
+| `TIER_DEFAULT_DELETE` | 400 | string | | 不能删除默认等级 | Cannot delete the default tier |
+| `TIER_IN_USE` | 409 | string | | 仍有用户属于该等级 | The tier is still assigned to users |
+| `USER_NOT_FOUND` | 404 | string | | 用户不存在 | User not found |
+| `USER_ID_INVALID` | 400 | string | | 用户编号无效 | Invalid user_id |
+| `STATUS_INVALID` | 400 | string | | 状态无效 | Invalid status |
+| `GENDER_INVALID` | 400 | string | | 性别无效 | Invalid gender |
+| `BIRTH_FORMAT_INVALID` | 400 / 422 | string | 422 来自 pydantic 校验 | 出生年月格式无效 | Invalid birth year-month format |
+| `BIRTH_IN_FUTURE` | 400 / 422 | string | | 出生年月不能晚于当前月份 | Birth year-month cannot be after the current month |
+| `BIRTH_INVALID` | 400 / 422 | string | | 出生年月无效 | Invalid birth year-month |
+| `AVATAR_DISABLED` | 501 | string | | 头像功能未启用 | Avatars are not enabled |
+| `AVATAR_NOT_FOUND` | 404 | string | | 头像不存在 | Avatar not found |
+| `AVATAR_STORAGE_UNCONFIGURED` | 501 | string | | 头像存储未配置 | Avatar storage is not configured |
+| `AVATAR_EMPTY` | 400 | string | | 请选择头像图片 | Please choose an avatar image |
+| `AVATAR_TOO_LARGE` | 400 | string | | 头像不能超过 2MB | Avatar must not exceed 2MB |
+| `VALIDATION_ERROR` | 422 | list | 仅 `localize_validation=True` 时顶层带 `code` | 请求参数无效 | Invalid request |
+
+成功 `StatusResponse.detail`：`CODE_SENT`「验证码已发送」、`CODE_VALID`「验证码有效」、`PASSWORD_RESET_OK`「密码重置成功」、`PASSWORD_CHANGED_OK`「密码修改成功」。邮件主题/动作见目录 `EMAIL_SUBJECT_*` / `EMAIL_ACTION_*`。

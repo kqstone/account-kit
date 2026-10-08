@@ -1,32 +1,37 @@
-import React, { useEffect, useState, useCallback } from 'react'
+import React, { useEffect, useState, useCallback, useMemo } from 'react'
 import { Link } from 'react-router-dom'
 import { adminGetAuditLogs } from '../lib/api'
 import type { AuditLogItem } from '../types'
+import { useDemoI18n, type DemoMessages } from '../lib/i18n'
 
-const EVENT_OPTIONS = [
-  { value: '', label: '全部事件' },
-  { value: 'login_success', label: '登录成功 (login_success)' },
-  { value: 'login_failed', label: '登录失败 (login_failed)' },
-  { value: 'login_2fa_failed', label: '2FA 失败 (login_2fa_failed)' },
-  { value: '2fa_enabled', label: '开启 2FA (2fa_enabled)' },
-  { value: '2fa_disabled', label: '关闭 2FA (2fa_disabled)' },
-  { value: '2fa_reset', label: '重置 2FA (2fa_reset)' },
-  { value: '2fa_recovery_regenerated', label: '重置恢复码 (2fa_recovery_regenerated)' },
-  { value: 'password_changed', label: '修改密码 (password_changed)' },
-  { value: 'password_reset', label: '重置密码 (password_reset)' },
-  { value: 'email_changed', label: '修改邮箱 (email_changed)' },
-  { value: 'logout', label: '退出登录 (logout)' },
-  { value: 'refresh_reuse_detected', label: '刷新令牌重用 (refresh_reuse_detected)' },
-  { value: 'account_deleted', label: '注销账号 (account_deleted)' },
-  { value: 'verification_code_locked', label: '验证码锁定 (verification_code_locked)' },
-  { value: 'admin_user_updated', label: '管理员更新用户 (admin_user_updated)' },
-  { value: 'admin_user_deleted', label: '管理员删除用户 (admin_user_deleted)' },
-  { value: 'admin_role_changed', label: '管理员修改角色 (admin_role_changed)' },
-  { value: 'admin_tier_changed', label: '管理员修改等级 (admin_tier_changed)' },
-  { value: 'role_change_reviewed', label: '角色申请审核 (role_change_reviewed)' },
+const getEventOptions = (t: DemoMessages) => [
+  { value: '', label: t.allEventsReact },
+  { value: 'login_success', label: `${t.audit_login_success} (login_success)` },
+  { value: 'login_failed', label: `${t.audit_login_failed} (login_failed)` },
+  { value: 'login_2fa_failed', label: `${t.audit_login_2fa_failed_short} (login_2fa_failed)` },
+  { value: '2fa_enabled', label: `${t.audit_2fa_enabled} (2fa_enabled)` },
+  { value: '2fa_disabled', label: `${t.audit_2fa_disabled} (2fa_disabled)` },
+  { value: '2fa_reset', label: `${t.audit_2fa_reset} (2fa_reset)` },
+  { value: '2fa_recovery_regenerated', label: `${t.audit_2fa_recovery_regenerated_short} (2fa_recovery_regenerated)` },
+  { value: 'password_changed', label: `${t.audit_password_changed} (password_changed)` },
+  { value: 'password_reset', label: `${t.audit_password_reset} (password_reset)` },
+  { value: 'email_changed', label: `${t.audit_email_changed} (email_changed)` },
+  { value: 'logout', label: `${t.audit_logout} (logout)` },
+  { value: 'refresh_reuse_detected', label: `${t.audit_refresh_reuse_detected_short} (refresh_reuse_detected)` },
+  { value: 'account_deleted', label: `${t.audit_account_deleted_short} (account_deleted)` },
+  { value: 'verification_code_locked', label: `${t.audit_verification_code_locked} (verification_code_locked)` },
+  { value: 'admin_user_updated', label: `${t.audit_admin_user_updated} (admin_user_updated)` },
+  { value: 'admin_user_deleted', label: `${t.audit_admin_user_deleted} (admin_user_deleted)` },
+  { value: 'admin_role_changed', label: `${t.audit_admin_role_changed} (admin_role_changed)` },
+  { value: 'admin_tier_changed', label: `${t.audit_admin_tier_changed} (admin_tier_changed)` },
+  { value: 'role_change_reviewed', label: `${t.audit_role_change_reviewed} (role_change_reviewed)` },
 ]
 
 export const AdminAuditPage: React.FC = () => {
+  const { locale, t } = useDemoI18n()
+  const dateLocale = locale === 'zh-CN' ? 'zh-CN' : 'en-US'
+  const eventOptions = useMemo(() => getEventOptions(t), [t])
+
   const [logs, setLogs] = useState<AuditLogItem[]>([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -51,12 +56,12 @@ export const AdminAuditPage: React.FC = () => {
         setTotal(res.total || 0)
         setPage(res.page || targetPage)
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : '加载审计日志失败')
+        setError(err instanceof Error ? err.message : t.loadAuditLogsFailed)
       } finally {
         setLoading(false)
       }
     },
-    [page, pageSize, selectedEvent, userIdFilter]
+    [page, pageSize, selectedEvent, userIdFilter, t.loadAuditLogsFailed]
   )
 
   useEffect(() => {
@@ -76,10 +81,10 @@ export const AdminAuditPage: React.FC = () => {
       <div className="demo-admin-header">
         <div className="demo-admin-tabs">
           <Link to="/admin" className="demo-admin-tab">
-            👥 用户管理
+            {t.tabUsersWithIcon}
           </Link>
           <Link to="/admin/audit" className="demo-admin-tab active">
-            📋 审计日志
+            {t.tabAuditLogWithIcon}
           </Link>
         </div>
         <button
@@ -88,7 +93,7 @@ export const AdminAuditPage: React.FC = () => {
           onClick={() => void loadLogs(page)}
           disabled={loading}
         >
-          {loading ? '刷新中…' : '刷新日志'}
+          {loading ? t.refreshingBtn : t.refreshLogsSimple}
         </button>
       </div>
 
@@ -98,13 +103,13 @@ export const AdminAuditPage: React.FC = () => {
         {/* Filters */}
         <form onSubmit={handleSearchSubmit} className="demo-filter-bar">
           <div className="demo-filter-item">
-            <label>事件过滤</label>
+            <label>{t.filterEventLabel}</label>
             <select
               className="ak-input"
               value={selectedEvent}
               onChange={(e) => setSelectedEvent(e.target.value)}
             >
-              {EVENT_OPTIONS.map((opt) => (
+              {eventOptions.map((opt) => (
                 <option key={opt.value} value={opt.value}>
                   {opt.label}
                 </option>
@@ -113,60 +118,60 @@ export const AdminAuditPage: React.FC = () => {
           </div>
 
           <div className="demo-filter-item">
-            <label>用户 ID (UUID)</label>
+            <label>{t.filterUserIdLabel}</label>
             <input
               type="text"
               className="ak-input"
-              placeholder="可选精确过滤 user_id"
+              placeholder={t.filterUserIdReactPlaceholder}
               value={userIdFilter}
               onChange={(e) => setUserIdFilter(e.target.value)}
             />
           </div>
 
           <div className="demo-filter-item">
-            <label>每页条数</label>
+            <label>{t.filterPageSizeLabel}</label>
             <select
               className="ak-input"
               value={pageSize}
               onChange={(e) => setPageSize(Number(e.target.value))}
             >
-              <option value={10}>10 条 / 页</option>
-              <option value={20}>20 条 / 页</option>
-              <option value={50}>50 条 / 页</option>
-              <option value={100}>100 条 / 页</option>
+              <option value={10}>{t.pageSizeOption.replace('{count}', '10')}</option>
+              <option value={20}>{t.pageSizeOption.replace('{count}', '20')}</option>
+              <option value={50}>{t.pageSizeOption.replace('{count}', '50')}</option>
+              <option value={100}>{t.pageSizeOption.replace('{count}', '100')}</option>
             </select>
           </div>
 
           <div className="demo-filter-item-btn">
             <button type="submit" className="ak-btn ak-btn-primary" disabled={loading}>
-              查询
+              {t.queryBtn}
             </button>
           </div>
         </form>
 
         {/* Table */}
         {loading && logs.length === 0 ? (
-          <div className="demo-loading-block">正在加载审计日志…</div>
+          <div className="demo-loading-block">{t.loadingAuditLogs}</div>
         ) : logs.length === 0 ? (
-          <div className="demo-empty">没有查询到相关审计日志记录</div>
+          <div className="demo-empty">{t.noAuditLogsFoundReact}</div>
         ) : (
           <>
             <div className="demo-table-wrapper">
               <table className="demo-table">
                 <thead>
                   <tr>
-                    <th>时间</th>
-                    <th>事件名称</th>
-                    <th>操作者/用户 ID</th>
-                    <th>IP / 设备</th>
-                    <th>元数据 (Meta)</th>
+                    <th>{t.thTime}</th>
+                    <th>{t.thEventName}</th>
+                    <th>{t.thOperatorUserId}</th>
+                    <th>{t.thIpDevice}</th>
+                    <th>{t.thMetaSimple}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {logs.map((log) => (
                     <tr key={log.id}>
                       <td style={{ whiteSpace: 'nowrap' }}>
-                        {new Date(log.created_at).toLocaleString('zh-CN')}
+                        {new Date(log.created_at).toLocaleString(dateLocale)}
                       </td>
                       <td>
                         <span className="demo-event-tag">{log.event}</span>
@@ -175,7 +180,7 @@ export const AdminAuditPage: React.FC = () => {
                         {log.user_id ? (
                           <code className="demo-code-inline">{log.user_id}</code>
                         ) : (
-                          <span className="demo-muted">系统 / 匿名</span>
+                          <span className="demo-muted">{t.systemOrAnonymous}</span>
                         )}
                       </td>
                       <td>
@@ -202,7 +207,10 @@ export const AdminAuditPage: React.FC = () => {
             {/* Pagination Controls */}
             <div className="demo-pagination">
               <span className="demo-pagination-info">
-                共 {total} 条记录，第 {page} / {totalPages} 页
+                {t.paginationTotalText
+                  .replace('{total}', String(total))
+                  .replace('{page}', String(page))
+                  .replace('{totalPages}', String(totalPages))}
               </span>
               <div className="demo-pagination-btns">
                 <button
@@ -211,7 +219,7 @@ export const AdminAuditPage: React.FC = () => {
                   disabled={page <= 1 || loading}
                   onClick={() => void loadLogs(page - 1)}
                 >
-                  上一页
+                  {t.prevPageBtn}
                 </button>
                 <button
                   type="button"
@@ -219,7 +227,7 @@ export const AdminAuditPage: React.FC = () => {
                   disabled={page >= totalPages || loading}
                   onClick={() => void loadLogs(page + 1)}
                 >
-                  下一页
+                  {t.nextPageBtn}
                 </button>
               </div>
             </div>

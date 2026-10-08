@@ -18,9 +18,20 @@ export type {
   TwoFactorStatus,
 } from "./client"
 export { LoginForm, RegisterForm, ResetPasswordForm } from "./forms"
-export { errorCodeOf } from "./utils"
-export { defaultProfileLabels, defaultTwoFactorLabels } from "./labels"
-export type { ProfileLabels, TwoFactorLabels } from "./labels"
+export { ACCOUNT_I18N_KEY, accountKitI18n, followVueI18n, provideAccountI18n, useAccountI18n, useKitLocale } from "./i18n"
+export type { AccountI18nContext, AccountI18nSource, VueI18nLike } from "./i18n"
+export { defaultErrorLabels } from "./errors"
+export { errorCodeOf, formatDateTime, formatError, resolveLocale } from "./utils"
+export type { KitLocale } from "./utils"
+export {
+  defaultFormLabels,
+  defaultProfileLabels,
+  defaultTwoFactorLabels,
+  resolveFormLabels,
+  resolveProfileLabels,
+  resolveTwoFactorLabels,
+} from "./labels"
+export type { AccountLocaleMessages, AccountMessagesOverride, FormLabels, ProfileLabels, TwoFactorLabels } from "./labels"
 export {
   canSubmitFactor,
   FACTOR_EMAIL,

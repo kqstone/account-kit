@@ -3,9 +3,11 @@ import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { UserAvatar, TierBadge } from '@kqstone/account-ui-react'
 import { accountClient } from '../lib/auth'
+import { useDemoI18n } from '../lib/i18n'
 
 export const Navbar: React.FC = () => {
   const { initialized, user, token, logout, toggleOutboxDrawer } = useAuth()
+  const { locale, setLocale, t } = useDemoI18n()
   const navigate = useNavigate()
 
   const handleLogout = async () => {
@@ -33,7 +35,7 @@ export const Navbar: React.FC = () => {
                         isActive ? 'demo-nav-link active' : 'demo-nav-link'
                       }
                     >
-                      登录
+                      {t.login}
                     </NavLink>
                     <NavLink
                       to="/register"
@@ -41,7 +43,7 @@ export const Navbar: React.FC = () => {
                         isActive ? 'demo-nav-link active' : 'demo-nav-link'
                       }
                     >
-                      注册
+                      {t.register}
                     </NavLink>
                   </>
                 ) : (
@@ -51,7 +53,7 @@ export const Navbar: React.FC = () => {
                       isActive ? 'demo-nav-link active' : 'demo-nav-link'
                     }
                   >
-                    账号设置
+                    {t.account}
                   </NavLink>
                 )}
 
@@ -64,7 +66,7 @@ export const Navbar: React.FC = () => {
                         isActive ? 'demo-nav-link active' : 'demo-nav-link'
                       }
                     >
-                      用户管理
+                      {t.adminUsers}
                     </NavLink>
                     <NavLink
                       to="/admin/audit"
@@ -72,7 +74,7 @@ export const Navbar: React.FC = () => {
                         isActive ? 'demo-nav-link active' : 'demo-nav-link'
                       }
                     >
-                      审计日志
+                      {t.adminAudit}
                     </NavLink>
                   </>
                 )}
@@ -83,7 +85,7 @@ export const Navbar: React.FC = () => {
                     isActive ? 'demo-nav-link active' : 'demo-nav-link'
                   }
                 >
-                  站内信箱
+                  {t.outbox}
                 </NavLink>
               </>
             ) : (
@@ -94,7 +96,7 @@ export const Navbar: React.FC = () => {
                     isActive ? 'demo-nav-link active' : 'demo-nav-link'
                   }
                 >
-                  初始化向导
+                  {t.setup}
                 </NavLink>
                 <NavLink
                   to="/outbox"
@@ -102,7 +104,7 @@ export const Navbar: React.FC = () => {
                     isActive ? 'demo-nav-link active' : 'demo-nav-link'
                   }
                 >
-                  站内信箱
+                  {t.outbox}
                 </NavLink>
               </>
             )}
@@ -110,13 +112,29 @@ export const Navbar: React.FC = () => {
         </div>
 
         <div className="demo-nav-right">
+          <div className="lang-switch" role="group" aria-label={`${t.langZh} / ${t.langEn}`}>
+            <button
+              type="button"
+              className={locale === 'zh-CN' ? 'active' : ''}
+              onClick={() => setLocale('zh-CN')}
+            >
+              {t.langZh}
+            </button>
+            <button
+              type="button"
+              className={locale === 'en' ? 'active' : ''}
+              onClick={() => setLocale('en')}
+            >
+              {t.langEn}
+            </button>
+          </div>
           <button
             type="button"
             className="demo-btn-outbox-toggle"
             onClick={toggleOutboxDrawer}
-            title="打开/关闭右侧站内信箱"
+            title={t.drawerTitle}
           >
-            📬 <span>侧栏信箱</span>
+            📬 <span>{t.drawerMailbox}</span>
           </button>
 
           {user && token ? (
@@ -129,7 +147,7 @@ export const Navbar: React.FC = () => {
               />
               <span className="demo-username">{user.username}</span>
               {user.is_admin && (
-                <span className="demo-admin-tag">管理员</span>
+                <span className="demo-admin-tag">{t.admin}</span>
               )}
               {user.tier_name && (
                 <TierBadge
@@ -142,14 +160,14 @@ export const Navbar: React.FC = () => {
                 className="demo-btn-link demo-logout-link"
                 onClick={handleLogout}
               >
-                退出
+                {t.logout}
               </button>
             </div>
           ) : !initialized ? (
-            <span className="demo-status-tag warning">未初始化</span>
+            <span className="demo-status-tag warning">{t.notInit}</span>
           ) : (
             <Link to="/login" className="demo-btn-login-sm">
-              去登录
+              {t.goLogin}
             </Link>
           )}
         </div>

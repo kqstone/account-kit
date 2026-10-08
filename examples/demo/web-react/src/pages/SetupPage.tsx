@@ -2,9 +2,11 @@ import React, { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { initSetup, testDatabase } from '../lib/api'
+import { useDemoI18n } from '../lib/i18n'
 
 export const SetupPage: React.FC = () => {
   const { setInitialized } = useAuth()
+  const { t } = useDemoI18n()
   const navigate = useNavigate()
 
   // Postgres DB State
@@ -16,9 +18,9 @@ export const SetupPage: React.FC = () => {
 
   // DB test status
   const [testingDb, setTestingDb] = useState(false)
-  const [dbTestMessage, setDbTestMessage] = useState<{
+  const [dbTestResult, setDbTestResult] = useState<{
     type: 'success' | 'error'
-    text: string
+    rawMsg?: string
   } | null>(null)
 
   // Admin Account State
@@ -38,11 +40,14 @@ export const SetupPage: React.FC = () => {
 
   // Submission State
   const [submitting, setSubmitting] = useState(false)
-  const [submitError, setSubmitError] = useState('')
+  const [submitError, setSubmitError] = useState<{
+    type?: 'db' | 'admin' | 'pwd' | 'initFailed'
+    custom?: string
+  } | null>(null)
 
   const handleTestDb = async () => {
     setTestingDb(true)
-    setDbTestMessage(null)
+    setDbTestResult(null)
     try {
       await testDatabase({
         host: dbHost.trim(),
@@ -51,10 +56,10 @@ export const SetupPage: React.FC = () => {
         password: dbPassword,
         database: dbName.trim(),
       })
-      setDbTestMessage({ type: 'success', text: '✓ 数据库连接成功！' })
+      setDbTestResult({ type: 'success' })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '连接数据库失败'
-      setDbTestMessage({ type: 'error', text: `✗ 数据库连接失败: ${msg}` })
+      const msg = err instanceof Error ? err.message : ''
+      setDbTestResult({ type: 'error', rawMsg: msg })
     } finally {
       setTestingDb(false)
     }
@@ -62,18 +67,18 @@ export const SetupPage: React.FC = () => {
 
   const handleInit = async (e: React.FormEvent) => {
     e.preventDefault()
-    setSubmitError('')
+    setSubmitError(null)
 
     if (!dbHost || !dbUser || !dbName) {
-      setSubmitError('请完整填写数据库连接配置')
+      setSubmitError({ type: 'db' })
       return
     }
     if (!adminUsername || !adminEmail || !adminPassword) {
-      setSubmitError('请完整填写管理员账号信息')
+      setSubmitError({ type: 'admin' })
       return
     }
     if (adminPassword.length < 6) {
-      setSubmitError('管理员密码至少为 6 位')
+      setSubmitError({ type: 'pwd' })
       return
     }
 
@@ -112,13 +117,15 @@ export const SetupPage: React.FC = () => {
         setInitialized(true)
         navigate('/login', {
           state: {
-            message: `🎉 初始化成功！已创建管理员 ${res.admin.username} (${res.admin.email})，请登录。`,
+            message: t.setupInitSuccess
+              .replace('{username}', res.admin.username)
+              .replace('{email}', res.admin.email),
           },
         })
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : '初始化失败'
-      setSubmitError(msg)
+      const msg = err instanceof Error && err.message ? err.message : ''
+      setSubmitError(msg ? { custom: msg } : { type: 'initFailed' })
     } finally {
       setSubmitting(false)
     }
@@ -128,10 +135,9 @@ export const SetupPage: React.FC = () => {
     <div className="demo-page-container">
       <div className="demo-card demo-setup-card">
         <div className="demo-setup-header">
-          <h2>🚀 account-kit 初始化向导</h2>
+          <h2>{t.setupHeadingRocket}</h2>
           <p className="demo-muted">
-            检测到系统尚未初始化。请配置 PostgreSQL
-            数据库与管理员凭证，系统将自动建表并挂载账号套件。
+            {t.setupDescReact}
           </p>
         </div>
 
@@ -140,11 +146,11 @@ export const SetupPage: React.FC = () => {
           <section className="demo-form-section">
             <div className="demo-section-title">
               <span className="demo-step-num">1</span>
-              <h3>PostgreSQL 数据库配置</h3>
+              <h3>{t.sec1DbReact}</h3>
             </div>
             <div className="demo-form-grid">
               <label className="demo-label">
-                <span>主机 (Host)</span>
+                <span>{t.dbHost}</span>
                 <input
                   type="text"
                   className="ak-input"
@@ -156,7 +162,7 @@ export const SetupPage: React.FC = () => {
               </label>
 
               <label className="demo-label">
-                <span>端口 (Port)</span>
+                <span>{t.dbPort}</span>
                 <input
                   type="number"
                   className="ak-input"
@@ -168,7 +174,7 @@ export const SetupPage: React.FC = () => {
               </label>
 
               <label className="demo-label">
-                <span>用户名 (User)</span>
+                <span>{t.dbUser}</span>
                 <input
                   type="text"
                   className="ak-input"
@@ -180,7 +186,7 @@ export const SetupPage: React.FC = () => {
               </label>
 
               <label className="demo-label">
-                <span>密码 (Password)</span>
+                <span>{t.dbPassword}</span>
                 <input
                   type="password"
                   className="ak-input"
@@ -191,7 +197,7 @@ export const SetupPage: React.FC = () => {
               </label>
 
               <label className="demo-label full-width">
-                <span>数据库名称 (Database)</span>
+                <span>{t.dbNameReact}</span>
                 <input
                   type="text"
                   className="ak-input"
@@ -210,17 +216,19 @@ export const SetupPage: React.FC = () => {
                 onClick={handleTestDb}
                 disabled={testingDb}
               >
-                {testingDb ? '测试连接中…' : '测试数据库连接'}
+                {testingDb ? t.testingDb : t.btnTestDb}
               </button>
-              {dbTestMessage && (
+              {dbTestResult && (
                 <span
                   className={
-                    dbTestMessage.type === 'success'
+                    dbTestResult.type === 'success'
                       ? 'demo-test-success'
                       : 'demo-test-error'
                   }
                 >
-                  {dbTestMessage.text}
+                  {dbTestResult.type === 'success'
+                    ? t.dbTestSuccess
+                    : `${t.dbTestFailedPrefix}${dbTestResult.rawMsg || t.dbTestConnectFailed}`}
                 </span>
               )}
             </div>
@@ -230,11 +238,11 @@ export const SetupPage: React.FC = () => {
           <section className="demo-form-section">
             <div className="demo-section-title">
               <span className="demo-step-num">2</span>
-              <h3>超级管理员账号</h3>
+              <h3>{t.sec2AdminReact}</h3>
             </div>
             <div className="demo-form-grid">
               <label className="demo-label">
-                <span>管理员用户名</span>
+                <span>{t.adminUsername}</span>
                 <input
                   type="text"
                   className="ak-input"
@@ -246,7 +254,7 @@ export const SetupPage: React.FC = () => {
               </label>
 
               <label className="demo-label">
-                <span>管理员邮箱</span>
+                <span>{t.adminEmail}</span>
                 <input
                   type="email"
                   className="ak-input"
@@ -258,7 +266,7 @@ export const SetupPage: React.FC = () => {
               </label>
 
               <label className="demo-label full-width">
-                <span>管理员密码 (至少 6 位)</span>
+                <span>{t.adminPassword}</span>
                 <input
                   type="password"
                   className="ak-input"
@@ -275,7 +283,7 @@ export const SetupPage: React.FC = () => {
           <section className="demo-form-section">
             <div className="demo-section-title">
               <span className="demo-step-num">3</span>
-              <h3>功能特性开关</h3>
+              <h3>{t.sec3FeaturesReact}</h3>
             </div>
             <div className="demo-checkbox-group">
               <label className="demo-checkbox-card">
@@ -285,8 +293,8 @@ export const SetupPage: React.FC = () => {
                   onChange={(e) => setFeatureRefresh(e.target.checked)}
                 />
                 <div>
-                  <strong>刷新令牌 (Refresh Token)</strong>
-                  <p>开启轮换式长效会话刷新能力</p>
+                  <strong>{t.featRefreshReact}</strong>
+                  <p>{t.featRefreshDescReact}</p>
                 </div>
               </label>
 
@@ -297,8 +305,8 @@ export const SetupPage: React.FC = () => {
                   onChange={(e) => setFeatureCaptcha(e.target.checked)}
                 />
                 <div>
-                  <strong>图形验证码 (Captcha)</strong>
-                  <p>多次登录失败后触发图形防爆破验证码</p>
+                  <strong>{t.featCaptchaReact}</strong>
+                  <p>{t.featCaptchaDescReact}</p>
                 </div>
               </label>
 
@@ -309,8 +317,8 @@ export const SetupPage: React.FC = () => {
                   onChange={(e) => setFeatureSelfDelete(e.target.checked)}
                 />
                 <div>
-                  <strong>自助注销 (Self Delete)</strong>
-                  <p>允许普通用户在个人中心注销账号</p>
+                  <strong>{t.featSelfDeleteReact}</strong>
+                  <p>{t.featSelfDeleteDescReact}</p>
                 </div>
               </label>
 
@@ -321,8 +329,8 @@ export const SetupPage: React.FC = () => {
                   onChange={(e) => setFeatureTwoFactorEmail(e.target.checked)}
                 />
                 <div>
-                  <strong>邮箱两步验证 (Two Factor Email)</strong>
-                  <p>支持通过邮箱验证码替代 TOTP 验证器完成 2FA</p>
+                  <strong>{t.featTwoFactorEmailReact}</strong>
+                  <p>{t.featTwoFactorEmailDescReact}</p>
                 </div>
               </label>
 
@@ -333,8 +341,8 @@ export const SetupPage: React.FC = () => {
                   onChange={(e) => setFeatureRequireApproval(e.target.checked)}
                 />
                 <div>
-                  <strong>注册审批 (Require Approval)</strong>
-                  <p>新注册账号需管理员审批后方可登录</p>
+                  <strong>{t.featRequireApprovalReact}</strong>
+                  <p>{t.featRequireApprovalDescReact}</p>
                 </div>
               </label>
             </div>
@@ -344,21 +352,29 @@ export const SetupPage: React.FC = () => {
           <section className="demo-form-section">
             <div className="demo-section-title">
               <span className="demo-step-num">4</span>
-              <h3>邮件发送模式</h3>
+              <h3>{t.sec4MailReact}</h3>
             </div>
             <div className="demo-radio-box selected">
               <input type="radio" checked readOnly />
               <div>
-                <strong>Console（控制台 + 站内信箱）</strong>
-                <p>
-                  Demo 环境推荐模式，所有验证码直接打印到终端及前端「站内信箱」，无需配置
-                  SMTP。
-                </p>
+                <strong>{t.mailConsoleReactTitle}</strong>
+                <p>{t.mailConsoleReactDesc}</p>
               </div>
             </div>
           </section>
 
-          {submitError && <div className="ak-error demo-error-box">{submitError}</div>}
+          {submitError && (
+            <div className="ak-error demo-error-box">
+              {submitError.custom ||
+                (submitError.type === 'db'
+                  ? t.errFillDbConfig
+                  : submitError.type === 'admin'
+                  ? t.errFillAdminInfo
+                  : submitError.type === 'pwd'
+                  ? t.errAdminPasswordMin6
+                  : t.setupInitFailed)}
+            </div>
+          )}
 
           <div className="demo-submit-row">
             <button
@@ -366,7 +382,7 @@ export const SetupPage: React.FC = () => {
               className="ak-btn ak-btn-primary demo-btn-lg"
               disabled={submitting}
             >
-              {submitting ? '正在初始化系统…' : '提交并完成初始化'}
+              {submitting ? t.submittingSetup : t.submitAndInitBtn}
             </button>
           </div>
         </form>

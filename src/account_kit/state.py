@@ -16,7 +16,6 @@ import threading
 import time
 from typing import Any, Awaitable, Callable, Dict, Iterable, Optional, Tuple
 
-from fastapi import HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, AsyncSession
 
@@ -164,13 +163,17 @@ async def counter_clear(db: AsyncSession, config: AccountKitConfig, *keys: str) 
     await run_independent(db, work)
 
 
-def rate_limited(message: str = "请求过于频繁，请稍后再试", retry_after: int = 0) -> HTTPException:
-    detail: Dict[str, Any] = {"code": "RATE_LIMITED", "message": message}
+def rate_limited(retry_after: int = 0, *, message_key: str = "RATE_LIMITED"):
+    from account_kit.i18n import AccountError, account_error
+
+    extra: Dict[str, Any] = {}
     headers = None
     if retry_after > 0:
-        detail["retry_after"] = retry_after
+        extra["retry_after"] = retry_after
         headers = {"Retry-After": str(retry_after)}
-    return HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail=detail, headers=headers)
+    return account_error(
+        429, "RATE_LIMITED", extra=extra, headers=headers, as_dict=True, message_key=message_key
+    )
 
 
 async def enforce_limit(
@@ -179,11 +182,11 @@ async def enforce_limit(
     key: str,
     limit: int,
     window_seconds: int,
-    message: str = "请求过于频繁，请稍后再试",
+    message_key: str = "RATE_LIMITED",
 ) -> None:
     """Count one request against ``key``; 429 RATE_LIMITED once ``limit`` is exceeded. 0 = off."""
     if not limit or int(limit) <= 0 or not key:
         return
     count, ttl = await counter_hit(db, config, key, window_seconds)
     if count > int(limit):
-        raise rate_limited(message, ttl)
+        raise rate_limited(ttl, message_key=message_key)

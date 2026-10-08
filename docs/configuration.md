@@ -224,3 +224,24 @@ from account_kit import ensure_admin
 
 await ensure_admin(session, "ops", "ops@example.com", password)
 ```
+
+---
+
+## 国际化（0.3.0）
+
+详见 [i18n.md](i18n.md)。请求语言解析后写入 `ContextVar`，错误/成功文案走 `zh-CN` / `en` 两套目录。
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `default_locale` | `str` | `"zh-CN"` | 默认语言，也是回退语言；请求不带语言信息时用它 |
+| `supported_locales` | `Tuple[str, ...]` | `("zh-CN", "en")` | 允许的规范化语言标签 |
+| `locale_header` | `str` | `"X-Locale"` | 语言请求头 |
+| `locale_query` | `str` | `"locale"` | 语言查询参数名 |
+| `negotiate_accept_language` | `bool` | `False` | 是否根据 `Accept-Language` 协商 |
+| `locale_resolver` | `Optional[Callable]` | `None` | `request -> Optional[str]`，非空则优先于头/查询 |
+| `messages_override` | `Optional[Dict[str, Dict[str, str]]]` | `None` | locale → code → 文案，深合并覆盖内置目录 |
+| `localize_validation` | `bool` | `False` | 为 `RequestValidationError` 增加顶层 `code=VALIDATION_ERROR` |
+
+解析顺序：`locale_resolver` → 请求头 → 查询参数 →（可选）`Accept-Language` → `default_locale`。`zh*` → `zh-CN`，`en*` → `en`，其它回落默认语言。
+
+宿主 `mailer(to, purpose, code, language)` 的 `language` 仍是 `"zh"` / `"en"`。

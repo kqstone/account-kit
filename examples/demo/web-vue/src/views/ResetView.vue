@@ -1,22 +1,22 @@
 <template>
   <div class="auth-card">
     <div class="auth-header">
-      <h1 class="auth-title">找回密码</h1>
-      <p class="auth-desc">输入绑定的邮箱获取重置验证码并设置新密码</p>
+      <h1 class="auth-title">{{ tt.resetTitle }}</h1>
+      <p class="auth-desc">{{ tt.resetDesc }}</p>
     </div>
 
     <div class="outbox-hint-banner">
-      <span>📬 发送验证码后，可在右侧信箱中复制使用</span>
+      <span>📬 {{ tt.resetHint }}</span>
       <button type="button" class="btn btn-secondary btn-sm" @click="openDrawer">
-        查看信箱
+        {{ tt.viewMailbox }}
       </button>
     </div>
 
-    <div v-if="successMsg" class="alert alert-success">
+    <div v-if="isResetSuccess" class="alert alert-success">
       <div>
-        <strong>{{ successMsg }}</strong>
+        <strong>{{ tt.resetOk }}</strong>
         <div style="margin-top: 8px">
-          <router-link to="/login" class="btn btn-sm">前往登录</router-link>
+          <router-link to="/login" class="btn btn-sm">{{ tt.goLoginBtn }}</router-link>
         </div>
       </div>
     </div>
@@ -24,13 +24,12 @@
     <ResetPasswordForm
       v-else
       :client="client"
-      language="zh"
       @success="handleResetSuccess"
     />
 
     <div class="auth-footer">
-      <span>想起密码了？</span>
-      <router-link to="/login">返回登录</router-link>
+      <span>{{ tt.rememberPassword }}</span>
+      <router-link to="/login">{{ tt.backLogin }}</router-link>
     </div>
   </div>
 </template>
@@ -39,14 +38,15 @@
 import { ref } from "vue"
 import { ResetPasswordForm } from "@kqstone/account-ui-vue"
 import { client, outboxDrawerOpen } from "../api"
+import { tt } from "../i18n"
 
-const successMsg = ref("")
+const isResetSuccess = ref(false)
 
 function openDrawer() {
   outboxDrawerOpen.value = true
 }
 
 function handleResetSuccess() {
-  successMsg.value = "密码已成功重置！请使用新密码重新登录。"
+  isResetSuccess.value = true
 }
 </script>

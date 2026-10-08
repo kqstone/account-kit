@@ -115,6 +115,30 @@ a:hover {
   gap: 10px;
 }
 
+.lang-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: #fff;
+}
+.lang-switch button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 8px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+  border-radius: 4px;
+}
+.lang-switch button.active {
+  color: var(--color-primary);
+  font-weight: 600;
+  background: #e6f4ff;
+}
+
 /* Main Content */
 .app-main {
   flex: 1;

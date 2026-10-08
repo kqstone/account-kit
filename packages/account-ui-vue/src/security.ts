@@ -1,5 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type AccountUser, type CodeSentResult } from "./client"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { interpolate, messageOf, textOf, type DeepPartial } from "./utils"
 
@@ -36,7 +37,7 @@ export const CaptchaImage = defineComponent({
   props: {
     client: { type: Object as PropType<AccountClient>, required: true },
     modelValue: { type: String, default: "" },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
   },
   emits: ["update:modelValue", "change", "error"],
@@ -44,7 +45,9 @@ export const CaptchaImage = defineComponent({
     ensureAccountStyle()
     const image = ref("")
     const error = ref("")
-    const L = () => resolveProfileLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function reload() {
       error.value = ""
@@ -91,7 +94,7 @@ export const ChangeEmailForm = defineComponent({
     client: { type: Object as PropType<AccountClient>, required: true },
     token: { type: String, required: true },
     user: { type: Object as PropType<AccountUser | null>, default: null },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
     requirePassword: { type: Boolean, default: true },
     className: { type: String, default: "" },
@@ -107,14 +110,16 @@ export const ChangeEmailForm = defineComponent({
     const busy = ref(false)
     const sending = ref(false)
     const { left, start } = useCountdown()
-    const L = () => resolveProfileLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function sendCode() {
       error.value = ""
       info.value = ""
       sending.value = true
       try {
-        const sent: CodeSentResult = await props.client.sendChangeEmailCode(props.token, newEmail.value.trim(), { language: props.language })
+        const sent: CodeSentResult = await props.client.sendChangeEmailCode(props.token, newEmail.value.trim(), { language: locale.value })
         info.value = interpolate(L().codeSentTo, { email: sent.email || newEmail.value.trim() })
         start(sent.cooldown || 60)
       } catch (e) {
@@ -183,7 +188,7 @@ export const DeleteAccountForm = defineComponent({
   props: {
     client: { type: Object as PropType<AccountClient>, required: true },
     token: { type: String, required: true },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
     /** Show the 2FA input (pass ``TwoFactorStatus.enabled``). */
     twoFactorEnabled: { type: Boolean, default: false },
@@ -202,13 +207,15 @@ export const DeleteAccountForm = defineComponent({
     const busy = ref(false)
     const sending = ref(false)
     const { left, start } = useCountdown()
-    const L = () => resolveProfileLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function sendEmail() {
       error.value = ""
       sending.value = true
       try {
-        const sent = await props.client.sendDeleteAccountEmailCode(props.token, props.language)
+        const sent = await props.client.sendDeleteAccountEmailCode(props.token, locale.value)
         start(sent.cooldown || 60)
       } catch (e) {
         error.value = messageOf(e, L().error)
@@ -283,7 +290,7 @@ export const LogoutButton = defineComponent({
     token: { type: String, default: "" },
     refreshToken: { type: String, default: "" },
     allDevices: { type: Boolean, default: false },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
     className: { type: String, default: "" },
   },
@@ -291,7 +298,9 @@ export const LogoutButton = defineComponent({
   setup(props, { emit, slots }) {
     ensureAccountStyle()
     const busy = ref(false)
-    const L = () => resolveProfileLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
     async function run() {
       busy.value = true
       let error: unknown = null

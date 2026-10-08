@@ -25,12 +25,12 @@ export function Login() {
 }
 ```
 
-文案通过 `language`（`zh` / `en`）和 `labels` 覆盖。二维码：安装 peer `qrcode`，或传入 `renderQr(otpauthUri) => dataUrl`。
+文案通过 `language`（`zh-CN` / `en`，旧值 `zh` 仍兼容）和组件 `labels` 覆盖。也可用 `<AccountKitProvider locale messages>`；对接 i18next 时把实例传给 `i18n` prop（内部订阅 `languageChanged`，不 import i18next）。`followI18next(i18n)` 仍可用。`createAccountClient({ getLocale: () => i18n.language })` 每请求带 `X-Locale`。二维码：安装 peer `qrcode`，或传入 `renderQr(otpauthUri) => dataUrl`。
 
 样式在组件首次渲染时以 `<style id="account-kit-ui">` 注入，class 前缀为 `ak-`。需要 `react` 18 或 19。
 
 ## 导出
 
-`LoginForm` `RegisterForm` `ResetPasswordForm` `TwoFactorSettings` `TwoFactorLoginDialog` `AvatarUploader` `UserAvatar` `ProfileFields` `TierBadge` `createAccountClient` `getMfaChallenge` `getTrustedDeviceToken` `saveTrustedDeviceToken` `clearTrustedDeviceToken` `clearTrustedDeviceTokensForUser` `trustedDeviceScope`
+`LoginForm` `RegisterForm` `ResetPasswordForm` `TwoFactorSettings` `TwoFactorLoginDialog` `AvatarUploader` `UserAvatar` `ProfileFields` `TierBadge` `createAccountClient` `AccountKitProvider` `useAccountI18n` `followI18next` `formatError` `resolveLocale` `getMfaChallenge` `getTrustedDeviceToken` `saveTrustedDeviceToken` `clearTrustedDeviceToken` `clearTrustedDeviceTokensForUser` `trustedDeviceScope`
 
 MIT License

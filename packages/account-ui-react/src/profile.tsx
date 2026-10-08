@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react"
 import { ensureAccountStyle, type AccountClient, type AccountUser, type ProfileUpdateResult } from "./client"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { useCountdown } from "./security"
 import { errorCodeOf, initialsOf, interpolate, messageOf, type DeepPartial } from "./utils"
@@ -95,7 +96,7 @@ export function AvatarUploader({
   client,
   token,
   user,
-  language = "zh",
+  language,
   labels,
   size = 72,
   accept = "image/jpeg,image/png,image/webp",
@@ -125,7 +126,9 @@ export function AvatarUploader({
   avatar?: (ctx: { user: AccountUser | null; busy: boolean }) => ReactNode
 }) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveProfileLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [current, setCurrent] = useState<AccountUser | null>(user || null)
@@ -201,7 +204,7 @@ export function ProfileFields({
   client,
   token,
   user,
-  language = "zh",
+  language,
   labels,
   showChangePassword = true,
   passwordEmailCode = "auto",
@@ -228,7 +231,9 @@ export function ProfileFields({
   onPasswordChanged?: () => void
 }) {
   ensureAccountStyle()
-  const L = useMemo(() => resolveProfileLabels(language, labels), [language, labels])
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [fullName, setFullName] = useState(user?.full_name || "")
   const [institution, setInstitution] = useState(user?.institution || "")
   const [gender, setGender] = useState(user?.gender || "")
@@ -251,7 +256,7 @@ export function ProfileFields({
     setError("")
     setSending(true)
     try {
-      await client.sendCode(email, "change_password", language, token)
+      await client.sendCode(email, "change_password", locale, token)
       setInfo(interpolate(L.codeSentTo, { email }))
       startCooldown(60)
     } catch (e) {

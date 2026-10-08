@@ -74,7 +74,7 @@ FastAPI `detail` 可能是字符串或对象。对象时看 `detail.code`（界�
 | 400 | `DB_UNREACHABLE` / `INIT_FAILED` | setup 连库或建表失败 |
 | 409 | `ALREADY_INITIALIZED` | setup 写接口在初始化后 |
 | 503 | `NOT_INITIALIZED` | kit 尚未挂载 |
-| 401 | `INVALID_CREDENTIALS` | 用户名或密码错（开了 captcha 时；`detail.message` 仍是 `Incorrect username or password`；带 `captcha_required`） |
+| 401 | `INVALID_CREDENTIALS` | 用户名或密码错（开了 captcha 时 `detail` 为对象，`message` 为「用户名或密码错误」/ 英文；带 `captcha_required`；顶层有 `code`） |
 | 428 | `CAPTCHA_REQUIRED` | 失败次数达阈值，登录必须带图形验证码 |
 | 400 | `CAPTCHA_INVALID` | 图形验证码错或已用 |
 | 401 | `MFA_REQUIRED` | 已开 2FA，密码对了但还没过第二因素 |
@@ -89,11 +89,11 @@ FastAPI `detail` 可能是字符串或对象。对象时看 `detail.code`（界�
 | 429 | `RATE_LIMITED` | 发码/登录等限流；`retry_after` 秒，头 `Retry-After` |
 | 400 | `ADMIN_SELF_DELETE_FORBIDDEN` | 管理员自助注销（kit 实现是 **400**） |
 | 400 | `TWO_FACTOR_NOT_ENABLED` | 未开 2FA 却要邮箱码注销/关 2FA |
-| 403 | （字符串）`Admin required` | 非管理员打后台 |
-| 403 | （字符串）`账号尚未通过审批` / `User is disabled` | 登录 |
-| 404 | `Not found` | 功能开关关掉的路由（refresh / self_delete / captcha / 2FA 邮箱码等） |
+| 403 | `ADMIN_REQUIRED`「需要管理员权限」 | 非管理员打后台 |
+| 403 | `ACCOUNT_PENDING` / `USER_DISABLED` | 登录 |
+| 404 | `NOT_FOUND`「资源不存在」 | 功能开关关掉的路由（refresh / self_delete / captcha / 2FA 邮箱码等） |
 
-未开 captcha 时，密码错误的 `detail` 是字符串 `Incorrect username or password`（客户端靠这句计数）。demo 默认开 captcha，走对象形。
+未开 captcha 时，密码错误的 `detail` 是字符串「用户名或密码错误」（顶层 `code=INVALID_CREDENTIALS`）。kit 内部按 `code` 计数。demo 默认开 captcha，走对象形。默认语言 `zh-CN`；demo 服务开启 `negotiate_accept_language=True`。
 
 ---
 

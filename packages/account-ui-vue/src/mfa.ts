@@ -1,6 +1,6 @@
 import { AccountApiError } from "./client"
-import type { TwoFactorLabels } from "./labels"
-import { interpolate } from "./utils"
+import { defaultTwoFactorLabels, type TwoFactorLabels } from "./labels"
+import { interpolate, resolveLocale } from "./utils"
 
 export const MFA_REQUIRED = "MFA_REQUIRED"
 export const FACTOR_TOTP = "totp"
@@ -26,6 +26,7 @@ export function errorDetail(error: unknown): Record<string, unknown> | string | 
 }
 
 export function errorCodeOf(error: unknown): string | null {
+  if (error instanceof AccountApiError && error.code) return error.code
   const detail = errorDetail(error)
   return detail && typeof detail === "object" && typeof detail.code === "string" ? detail.code : null
 }
@@ -97,13 +98,26 @@ export function formatSecret(secret?: string | null) {
 
 export function recoveryCodesText(
   codes: string[],
-  { username = "", brand = "account-kit", generatedAt = new Date() }: { username?: string; brand?: string; generatedAt?: Date } = {},
+  {
+    username = "",
+    brand = "account-kit",
+    generatedAt = new Date(),
+    locale,
+    labels,
+  }: {
+    username?: string
+    brand?: string
+    generatedAt?: Date
+    locale?: string
+    labels?: Pick<TwoFactorLabels, "recoveryFileTitle" | "recoveryFileAccount" | "recoveryFileGenerated" | "recoveryFileOnce">
+  } = {},
 ) {
+  const L = { ...defaultTwoFactorLabels[resolveLocale(locale)], ...labels }
   return [
-    `${brand} - 两步验证恢复码 / 2FA recovery codes`,
-    username ? `账号 / Account: ${username}` : null,
-    `生成时间 / Generated: ${generatedAt.toISOString()}`,
-    "每个恢复码只能使用一次 / Each code can be used once.",
+    interpolate(L.recoveryFileTitle, { brand }),
+    username ? interpolate(L.recoveryFileAccount, { username }) : null,
+    interpolate(L.recoveryFileGenerated, { time: generatedAt.toISOString() }),
+    L.recoveryFileOnce,
     "",
     ...codes,
     "",
@@ -134,7 +148,8 @@ const KNOWN_ERRORS = new Set([
 export function describeTwoFactorError(error: unknown) {
   const status = error instanceof AccountApiError ? error.status : 0
   const detail = errorDetail(error)
-  let code = detail && typeof detail === "object" && typeof detail.code === "string" ? detail.code : null
+  let code = error instanceof AccountApiError ? error.code || null : null
+  if (!code && detail && typeof detail === "object" && typeof detail.code === "string") code = detail.code
   if (!code && status === 429) code = "RATE_LIMITED"
   const fallback =
     (detail && typeof detail === "object" && typeof detail.message === "string" && detail.message) ||

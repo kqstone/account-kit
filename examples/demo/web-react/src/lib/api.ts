@@ -1,4 +1,5 @@
 import { tokenStore } from './auth'
+import { readDemoLocale, demoMessages } from './i18n'
 import type {
   AdminUserItem,
   AuditLogsResponse,
@@ -6,10 +7,14 @@ import type {
   SetupStatusResponse,
 } from '../types'
 
+function getT() {
+  return demoMessages[readDemoLocale()]
+}
+
 export async function getSetupStatus(): Promise<SetupStatusResponse> {
   const res = await fetch('/api/setup/status')
   if (!res.ok) {
-    throw new Error(`获取状态失败: ${res.statusText}`)
+    throw new Error(`${getT().apiFetchSetupFailed}: ${res.statusText}`)
   }
   return res.json()
 }
@@ -30,8 +35,8 @@ export async function testDatabase(db: {
   if (!res.ok) {
     const msg =
       typeof data.detail === 'object'
-        ? data.detail?.message || data.detail?.code || '连接失败'
-        : data.detail || '连接失败'
+        ? data.detail?.message || data.detail?.code || getT().apiDbConnectFailed
+        : data.detail || getT().apiDbConnectFailed
     throw new Error(msg)
   }
   return data
@@ -67,8 +72,8 @@ export async function initSetup(payload: {
   if (!res.ok) {
     const msg =
       typeof data.detail === 'object'
-        ? data.detail?.message || data.detail?.code || '初始化失败'
-        : data.detail || '初始化失败'
+        ? data.detail?.message || data.detail?.code || getT().apiInitFailed
+        : data.detail || getT().apiInitFailed
     throw new Error(msg)
   }
   return data
@@ -84,7 +89,7 @@ export async function getOutbox(
   const query = params.toString() ? `?${params.toString()}` : ''
   const res = await fetch(`/api/demo/outbox${query}`)
   if (!res.ok) {
-    throw new Error(`获取信箱失败: ${res.statusText}`)
+    throw new Error(`${getT().apiFetchOutboxFailed}: ${res.statusText}`)
   }
   return res.json()
 }
@@ -106,8 +111,8 @@ export async function adminGetUsers(): Promise<AdminUserItem[]> {
   if (!res.ok) {
     const msg =
       typeof data.detail === 'object'
-        ? data.detail?.message || data.detail?.code || '获取用户列表失败'
-        : data.detail || '获取用户列表失败'
+        ? data.detail?.message || data.detail?.code || getT().apiGetUsersFailed
+        : data.detail || getT().apiGetUsersFailed
     throw new Error(msg)
   }
   return data
@@ -132,8 +137,8 @@ export async function adminPatchUser(
   if (!res.ok) {
     const msg =
       typeof data.detail === 'object'
-        ? data.detail?.message || data.detail?.code || '更新用户失败'
-        : data.detail || '更新用户失败'
+        ? data.detail?.message || data.detail?.code || getT().apiPatchUserFailed
+        : data.detail || getT().apiPatchUserFailed
     throw new Error(msg)
   }
   return data
@@ -148,8 +153,8 @@ export async function adminDeleteUser(userId: string): Promise<void> {
     const data = await res.json().catch(() => ({}))
     const msg =
       typeof data.detail === 'object'
-        ? data.detail?.message || data.detail?.code || '删除用户失败'
-        : data.detail || '删除用户失败'
+        ? data.detail?.message || data.detail?.code || getT().apiDeleteUserFailed
+        : data.detail || getT().apiDeleteUserFailed
     throw new Error(msg)
   }
 }
@@ -163,8 +168,8 @@ export async function adminReset2Fa(userId: string): Promise<void> {
     const data = await res.json().catch(() => ({}))
     const msg =
       typeof data.detail === 'object'
-        ? data.detail?.message || data.detail?.code || '重置 2FA 失败'
-        : data.detail || '重置 2FA 失败'
+        ? data.detail?.message || data.detail?.code || getT().apiReset2faFailed
+        : data.detail || getT().apiReset2faFailed
     throw new Error(msg)
   }
 }
@@ -195,8 +200,8 @@ export async function adminGetAuditLogs(params: {
   if (!res.ok) {
     const msg =
       typeof data.detail === 'object'
-        ? data.detail?.message || data.detail?.code || '获取审计日志失败'
-        : data.detail || '获取审计日志失败'
+        ? data.detail?.message || data.detail?.code || getT().apiGetAuditLogsFailed
+        : data.detail || getT().apiGetAuditLogsFailed
     throw new Error(msg)
   }
   return data

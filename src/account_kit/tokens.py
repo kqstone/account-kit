@@ -18,7 +18,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Tuple
 
-from fastapi import HTTPException, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -44,12 +43,10 @@ def _aware(dt: Optional[datetime]) -> Optional[datetime]:
     return dt
 
 
-def refresh_error(code: str, message: str) -> HTTPException:
-    return HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail={"code": code, "message": message},
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+def refresh_error(code: str, message: str = ""):
+    from account_kit.i18n import AccountError, account_error
+
+    return account_error(401, code, as_dict=True, headers={"WWW-Authenticate": "Bearer"})
 
 
 async def issue_refresh_token(

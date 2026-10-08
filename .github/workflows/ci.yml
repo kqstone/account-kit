@@ -70,10 +70,12 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
+      - name: Check i18n key parity
+        run: node scripts/check-i18n-keys.mjs
       - name: Build UI packages and check npm pack
         run: |
           for p in vue react; do
-            (cd packages/account-ui-$p && npm ci && npm run build && npm pack --dry-run --json > /tmp/pack-$p.json)
+            (cd packages/account-ui-$p && npm ci && npm run typecheck && npm run build && npm pack --dry-run --json > /tmp/pack-$p.json)
             ! grep -q '"path": *"examples' /tmp/pack-$p.json
           done
       - name: Build demo frontends

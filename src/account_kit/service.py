@@ -5,11 +5,11 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from fastapi import HTTPException, status
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from account_kit.config import AccountKitConfig
+from account_kit.i18n import account_error, t
 from account_kit.models import Role, RoleChangeRequest, User, UserTier, UserTierAssignment
 from account_kit.otp import check_code, normalize_email
 from account_kit.profile import birth_year_month_to_date, format_birth_year_month, normalize_gender
@@ -22,27 +22,27 @@ ADMIN_LIKE = re.compile(
     re.IGNORECASE,
 )
 MAX_DEVICE_NAME = 64
-EMAIL_CODE_REQUIRED = {"code": "EMAIL_CODE_REQUIRED", "message": "请输入邮箱验证码", "email_code_required": True}
+EMAIL_CODE_REQUIRED = {"code": "EMAIL_CODE_REQUIRED", "email_code_required": True}
 
 
 def assert_role_code(code: str) -> str:
     cleaned = (code or "").strip()
     if not cleaned or cleaned.lower() == "admin":
-        raise HTTPException(status_code=400, detail="admin 不是角色，请使用后台权限标记")
+        raise account_error(400, "ROLE_RESERVED")
     if len(cleaned) > 50:
-        raise HTTPException(status_code=400, detail="角色代码过长")
+        raise account_error(400, "ROLE_CODE_TOO_LONG")
     return cleaned
 
 
 def assert_username(config: AccountKitConfig, username: str) -> str:
     name = (username or "").strip()
     if not name or len(name) > 50:
-        raise HTTPException(status_code=400, detail="用户名无效")
+        raise account_error(400, "USERNAME_INVALID")
     reserved = {item.lower() for item in config.reserved_usernames}
     if name.lower() in reserved:
-        raise HTTPException(status_code=400, detail="用户名不可用")
+        raise account_error(400, "USERNAME_RESERVED")
     if config.forbid_admin_like_usernames and ADMIN_LIKE.search(name):
-        raise HTTPException(status_code=400, detail="用户名不能包含管理员相关字符")
+        raise account_error(400, "USERNAME_ADMIN_LIKE")
     return name
 
 
@@ -53,16 +53,17 @@ _DUMMY_PASSWORD_HASH = "$2b$12$su2Z9bluPGqPCdgq/3EFVODXINcgZvBNMg1bAh9.j6yB9L0Mu
 def assert_password(config: AccountKitConfig, password: str, *, admin: bool = False) -> None:
     minimum = config.effective_admin_password_min_length() if admin else int(config.password_min_length)
     if password is None or len(password) < minimum:
-        raise HTTPException(status_code=400, detail="密码过短")
+        raise account_error(400, "PASSWORD_TOO_SHORT")
     if len(password.encode("utf-8")) > 72:
-        raise HTTPException(status_code=400, detail="密码过长")
+        raise account_error(400, "PASSWORD_TOO_LONG")
 
 
 def sanitize_device_name(raw: Optional[str]) -> str:
+    fallback = t("UNKNOWN_DEVICE")
     if not raw or not isinstance(raw, str):
-        return "未知设备"
+        return fallback
     cleaned = re.sub(r"[\x00-\x1f\x7f]", "", raw).strip()
-    return (cleaned or "未知设备")[:MAX_DEVICE_NAME]
+    return (cleaned or fallback)[:MAX_DEVICE_NAME]
 
 
 def email_allowed(config: AccountKitConfig, email: str) -> bool:
@@ -173,21 +174,21 @@ async def _revoke_second_factor_memory(db: AsyncSession, user_id, config: Option
 async def register_user(db: AsyncSession, config: AccountKitConfig, payload: RegisterRequest) -> User:
     if not email_allowed(config, payload.email):
         allowed = ", ".join(config.allowed_email_domains)
-        raise HTTPException(status_code=400, detail=f"仅允许带有以下后缀的邮箱注册: {allowed}")
+        raise account_error(400, "EMAIL_DOMAIN_NOT_ALLOWED", params={"allowed": allowed})
     assert_password(config, payload.password)
     username = assert_username(config, payload.username)
     await check_code(db, config, payload.email, "register", payload.code)
 
     if await get_user_by_username(db, username):
-        raise HTTPException(status_code=400, detail="Username already registered")
+        raise account_error(400, "USERNAME_TAKEN")
     if await get_user_by_email(db, payload.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise account_error(400, "EMAIL_TAKEN")
 
     if payload.role:
         code = assert_role_code(payload.role)
         role = await db.get(Role, code)
         if role is None or not role.allow_register:
-            raise HTTPException(status_code=400, detail="角色无效")
+            raise account_error(400, "ROLE_INVALID")
     else:
         role = await default_role(db)
 
@@ -260,15 +261,11 @@ async def login_user_tokens(
     hashed = user.hashed_password if user is not None else _DUMMY_PASSWORD_HASH
     password_ok = verify_password(password, hashed)
     if not user or not password_ok:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise account_error(401, "INVALID_CREDENTIALS", headers={"WWW-Authenticate": "Bearer"})
     if not user.is_active:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="User is disabled")
+        raise account_error(403, "USER_DISABLED")
     if user.approval_status != "approved":
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="账号尚未通过审批")
+        raise account_error(403, "ACCOUNT_PENDING")
 
     if config.two_factor_enabled and not mfa_satisfied:
         from account_kit.two_factor.service import is_enabled, mfa_required, trusted_device_ok
@@ -307,13 +304,10 @@ async def complete_login_tokens(
     session_id = None
     if config.session_mode == "single_device":
         if _session_active(config, user) and not force:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail={
-                    "code": "ALREADY_LOGGED_IN",
-                    "message": "该账号已在其他设备登录",
-                    "device_name": user.session_device_name or "未知设备",
-                },
+            raise account_error(
+                409,
+                "ALREADY_LOGGED_IN",
+                extra={"device_name": user.session_device_name or t("UNKNOWN_DEVICE")},
             )
         session_id = str(uuid.uuid4())
         user.current_session_id = session_id
@@ -348,7 +342,7 @@ async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str,
     assert_password(config, new_password, admin=bool(user and user.is_admin))
     await check_code(db, config, email, "reset_password", code)
     if not user:
-        raise HTTPException(status_code=404, detail="该邮箱未注册账号")
+        raise account_error(404, "EMAIL_NOT_REGISTERED")
     user.hashed_password = hash_password(new_password)
     if config.session_mode == "single_device":
         _clear_session(user)
@@ -369,7 +363,7 @@ async def change_password(
     code: Optional[str] = None,
 ) -> None:
     if not verify_password(old_password, user.hashed_password):
-        raise HTTPException(status_code=400, detail="旧密码错误")
+        raise account_error(400, "OLD_PASSWORD_INCORRECT")
     assert_password(config, new_password, admin=bool(user.is_admin))
     if config.change_password_require_email_code:
         await check_code(db, config, user.email, "change_password", code, missing_detail=dict(EMAIL_CODE_REQUIRED))
@@ -393,7 +387,7 @@ async def update_profile(
         username = assert_username(config, payload.username)
         existing = await get_user_by_username(db, username)
         if existing and existing.id != user.id:
-            raise HTTPException(status_code=400, detail="Username already registered")
+            raise account_error(400, "USERNAME_TAKEN")
         user.username = username
         username_changed = True
 
@@ -402,25 +396,19 @@ async def update_profile(
         nxt = normalize_email(payload.email)
         mode = (config.profile_email_change or "verify").lower()
         if mode == "reject":
-            raise HTTPException(
-                status_code=400,
-                detail={"code": "EMAIL_CHANGE_VIA_ENDPOINT", "message": "请通过 POST /me/email 修改邮箱"},
-            )
+            raise account_error(400, "EMAIL_CHANGE_VIA_ENDPOINT", as_dict=True)
         await assert_email_available(db, config, user, nxt)
         if mode != "direct":
             if not (payload.email_code or "").strip():
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "code": "EMAIL_VERIFICATION_REQUIRED",
-                        "message": "修改邮箱需要新邮箱收到的验证码",
-                        "email_code_required": True,
-                    },
+                raise account_error(
+                    400,
+                    "EMAIL_VERIFICATION_REQUIRED",
+                    extra={"email_code_required": True},
                 )
             if config.change_email_require_password and not verify_password(
                 payload.current_password or "", user.hashed_password
             ):
-                raise HTTPException(status_code=400, detail="当前密码错误")
+                raise account_error(400, "PASSWORD_INCORRECT")
             await check_code(db, config, nxt, PURPOSE_CHANGE_EMAIL, payload.email_code, bind=user.id)
         email_changed_from = user.email
         user.email = nxt
@@ -436,7 +424,7 @@ async def update_profile(
 
     if payload.new_password:
         if not payload.current_password or not verify_password(payload.current_password, user.hashed_password):
-            raise HTTPException(status_code=400, detail="当前密码错误")
+            raise account_error(400, "PASSWORD_INCORRECT")
         assert_password(config, payload.new_password, admin=bool(user.is_admin))
         code_email = email_changed_from or user.email
         await check_code(db, config, code_email, "change_password", payload.code, missing_detail=dict(EMAIL_CODE_REQUIRED))
@@ -461,13 +449,13 @@ PURPOSE_DELETE_ACCOUNT = "delete_account"
 async def assert_email_available(db: AsyncSession, config: AccountKitConfig, user: User, email: str) -> str:
     nxt = normalize_email(email)
     if not nxt or "@" not in nxt:
-        raise HTTPException(status_code=400, detail="邮箱无效")
+        raise account_error(400, "EMAIL_INVALID")
     if not email_allowed(config, nxt):
         allowed = ", ".join(config.allowed_email_domains)
-        raise HTTPException(status_code=400, detail=f"仅允许使用以下后缀的邮箱: {allowed}")
+        raise account_error(400, "EMAIL_DOMAIN_NOT_ALLOWED_CHANGE", params={"allowed": allowed})
     existing = await get_user_by_email(db, nxt)
     if existing and existing.id != user.id:
-        raise HTTPException(status_code=400, detail="Email already registered")
+        raise account_error(400, "EMAIL_TAKEN")
     return nxt
 
 
@@ -482,9 +470,9 @@ async def change_email(
     """Confirm an email change with the code sent to the new address. Returns the old email."""
     nxt = await assert_email_available(db, config, user, new_email)
     if nxt == user.email:
-        raise HTTPException(status_code=400, detail="新邮箱与当前邮箱相同")
+        raise account_error(400, "EMAIL_UNCHANGED")
     if config.change_email_require_password and not verify_password(password or "", user.hashed_password):
-        raise HTTPException(status_code=400, detail="当前密码错误")
+        raise account_error(400, "PASSWORD_INCORRECT")
     await check_code(db, config, nxt, PURPOSE_CHANGE_EMAIL, code, bind=user.id)
     old = user.email
     user.email = nxt
@@ -515,10 +503,7 @@ async def delete_user_account(db: AsyncSession, config: AccountKitConfig, user: 
     from account_kit import avatar as avatar_mod
 
     if user.is_admin:
-        raise HTTPException(
-            status_code=400,
-            detail={"code": "ADMIN_DELETE_FORBIDDEN", "message": "不能删除管理员账号"},
-        )
+        raise account_error(400, "ADMIN_DELETE_FORBIDDEN", as_dict=True)
     mode = "soft" if (config.user_delete_mode or "hard").lower() == "soft" else "hard"
     if config.on_deleted is not None:
         await config.on_deleted(db, user)

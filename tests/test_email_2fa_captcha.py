@@ -171,7 +171,7 @@ async def test_captcha_off_by_default(api):
     for _ in range(6):
         res = await api["client"].post("/api/auth/login", data={"username": "cap", "password": "bad-pass"})
         assert res.status_code == 401
-        assert res.json()["detail"] == "Incorrect username or password"
+        assert res.json()["detail"] == "用户名或密码错误"
 
 
 async def test_login_captcha_after_failures(api):
@@ -196,7 +196,7 @@ async def test_login_captcha_after_failures(api):
     assert first.status_code == 401
     assert first.json()["detail"] == {
         "code": "INVALID_CREDENTIALS",
-        "message": "Incorrect username or password",
+        "message": "用户名或密码错误",
         "captcha_required": False,
     }
     second = await login("bad-pass")
