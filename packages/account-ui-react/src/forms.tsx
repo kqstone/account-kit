@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser, type TokenPair } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, type FormLabels } from "./labels"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
 import { formatError, interpolate, type DeepPartial } from "./utils"
@@ -26,7 +26,8 @@ export function LoginForm({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveFormLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveFormLabels(locale, labels, messages), [locale, labels, messages])
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
@@ -159,7 +160,8 @@ export function RegisterForm({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveFormLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveFormLabels(locale, labels, messages), [locale, labels, messages])
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -302,7 +304,8 @@ export function ResetPasswordForm({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveFormLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveFormLabels(locale, labels, messages), [locale, labels, messages])
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
   const [password, setPassword] = useState("")

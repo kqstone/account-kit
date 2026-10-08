@@ -1,6 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type AccountUser, type CodeSentResult } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { interpolate, messageOf, textOf, type DeepPartial } from "./utils"
 
@@ -46,7 +46,8 @@ export const CaptchaImage = defineComponent({
     const image = ref("")
     const error = ref("")
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveProfileLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function reload() {
       error.value = ""
@@ -110,7 +111,8 @@ export const ChangeEmailForm = defineComponent({
     const sending = ref(false)
     const { left, start } = useCountdown()
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveProfileLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function sendCode() {
       error.value = ""
@@ -206,7 +208,8 @@ export const DeleteAccountForm = defineComponent({
     const sending = ref(false)
     const { left, start } = useCountdown()
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveProfileLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function sendEmail() {
       error.value = ""
@@ -296,7 +299,8 @@ export const LogoutButton = defineComponent({
     ensureAccountStyle()
     const busy = ref(false)
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveProfileLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
     async function run() {
       busy.value = true
       let error: unknown = null

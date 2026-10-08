@@ -60,7 +60,7 @@ function onSuccess(accessToken) {
 </template>
 ```
 
-文案通过 `language`（`zh-CN` / `en`，旧值 `zh` 仍兼容）和 `labels` 覆盖。也可用插件或 `provideAccountI18n`；对接 vue-i18n 时用 duck-typed `followVueI18n(i18n)`（不 import vue-i18n）。`createAccountClient({ getLocale })` 每请求带 `X-Locale`。二维码：安装 peer `qrcode`，或传入 `renderQr(otpauthUri) => dataUrl`。
+文案通过 `language`（`zh-CN` / `en`，旧值 `zh` 仍兼容）和组件 `labels` 覆盖。也可用插件 `accountKitI18n({ locale, i18n, messages })` 或 `provideAccountI18n(followVueI18n(i18n), messages)`；对接 vue-i18n 时把实例传给插件的 `i18n`，或用 duck-typed `followVueI18n(i18n)`（不 import vue-i18n）。`createAccountClient({ getLocale: followVueI18n(i18n) })` 每请求带 `X-Locale`。二维码：安装 peer `qrcode`，或传入 `renderQr(otpauthUri) => dataUrl`。
 
 样式在组件首次渲染时以 `<style id="account-kit-ui">` 注入，class 前缀为 `ak-`。需要 `vue` ^3.2。
 

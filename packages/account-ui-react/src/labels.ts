@@ -16,6 +16,10 @@ export type TwoFactorLabels = {
   copy: string
   copied: string
   download: string
+  recoveryFileTitle: string
+  recoveryFileAccount: string
+  recoveryFileGenerated: string
+  recoveryFileOnce: string
   currentPassword: string
   enterCode: string
   recoveryCode: string
@@ -168,6 +172,10 @@ const twoFactorZh: TwoFactorLabels = {
   copy: "复制",
   copied: "已复制到剪贴板",
   download: "下载 .txt",
+  recoveryFileTitle: "{brand} - 两步验证恢复码",
+  recoveryFileAccount: "账号: {username}",
+  recoveryFileGenerated: "生成时间: {time}",
+  recoveryFileOnce: "每个恢复码只能使用一次",
   currentPassword: "当前密码",
   enterCode: "验证器中的 6 位验证码",
   recoveryCode: "恢复码",
@@ -252,6 +260,10 @@ const twoFactorEn: TwoFactorLabels = {
   copy: "Copy",
   copied: "Copied to clipboard",
   download: "Download .txt",
+  recoveryFileTitle: "{brand} - 2FA recovery codes",
+  recoveryFileAccount: "Account: {username}",
+  recoveryFileGenerated: "Generated: {time}",
+  recoveryFileOnce: "Each code can be used once.",
   currentPassword: "Current password",
   enterCode: "6-digit code from your authenticator",
   recoveryCode: "Recovery code",
@@ -493,14 +505,56 @@ export const defaultTwoFactorLabels: Record<KitLocale, TwoFactorLabels> = { "zh-
 export const defaultProfileLabels: Record<KitLocale, ProfileLabels> = { "zh-CN": profileZh, en: profileEn }
 export const defaultFormLabels: Record<KitLocale, FormLabels> = { "zh-CN": formZh, en: formEn }
 
-export function resolveTwoFactorLabels(language?: string, override?: DeepPartial<TwoFactorLabels> | null): TwoFactorLabels {
-  return mergeLabels(defaultTwoFactorLabels[resolveLocale(language)], override)
+export type AccountLocaleMessages = {
+  forms: FormLabels
+  profile: ProfileLabels
+  twoFactor: TwoFactorLabels
+  errors: Record<string, string>
 }
 
-export function resolveProfileLabels(language?: string, override?: DeepPartial<ProfileLabels> | null): ProfileLabels {
-  return mergeLabels(defaultProfileLabels[resolveLocale(language)], override)
+export type AccountMessagesOverride = Partial<Record<KitLocale, DeepPartial<AccountLocaleMessages>>>
+
+function overlayProviderErrors<T extends object>(base: T, providerErrors?: Record<string, string>): T {
+  if (!providerErrors || !("errors" in base) || !base.errors || typeof base.errors !== "object") return base
+  return { ...base, errors: { ...(base.errors as Record<string, string>), ...providerErrors } }
 }
 
-export function resolveFormLabels(language?: string, override?: DeepPartial<FormLabels> | null): FormLabels {
-  return mergeLabels(defaultFormLabels[resolveLocale(language)], override)
+function resolveSection<T extends object>(
+  base: T,
+  messages: AccountMessagesOverride | null | undefined,
+  language: string | undefined,
+  section: "forms" | "profile" | "twoFactor",
+  override?: DeepPartial<T> | null,
+): T {
+  const provider = messages?.[resolveLocale(language)]
+  const withSection = mergeLabels(base, provider?.[section] as DeepPartial<T> | undefined)
+  const providerErrors = provider?.errors as Record<string, string> | undefined
+  return mergeLabels(overlayProviderErrors(withSection, providerErrors), override)
+}
+
+export function resolveTwoFactorLabels(
+  language?: string,
+  override?: DeepPartial<TwoFactorLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): TwoFactorLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultTwoFactorLabels[loc], messages, loc, "twoFactor", override)
+}
+
+export function resolveProfileLabels(
+  language?: string,
+  override?: DeepPartial<ProfileLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): ProfileLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultProfileLabels[loc], messages, loc, "profile", override)
+}
+
+export function resolveFormLabels(
+  language?: string,
+  override?: DeepPartial<FormLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): FormLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultFormLabels[loc], messages, loc, "forms", override)
 }

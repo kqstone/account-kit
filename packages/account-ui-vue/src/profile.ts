@@ -1,6 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { errorCodeOf, initialsOf, interpolate, messageOf, textOf, type DeepPartial } from "./utils"
 
@@ -105,7 +105,8 @@ export const AvatarUploader = defineComponent({
     )
 
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveProfileLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function upload(file: File) {
       busy.value = true
@@ -264,7 +265,8 @@ export const ProfileFields = defineComponent({
     )
 
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveProfileLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function submit() {
       const labels = L()

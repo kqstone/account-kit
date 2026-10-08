@@ -1,6 +1,6 @@
 import { AccountApiError } from "./client"
-import type { TwoFactorLabels } from "./labels"
-import { interpolate } from "./utils"
+import { defaultTwoFactorLabels, type TwoFactorLabels } from "./labels"
+import { interpolate, resolveLocale } from "./utils"
 
 export const MFA_REQUIRED = "MFA_REQUIRED"
 export const FACTOR_TOTP = "totp"
@@ -98,13 +98,26 @@ export function formatSecret(secret?: string | null) {
 
 export function recoveryCodesText(
   codes: string[],
-  { username = "", brand = "account-kit", generatedAt = new Date() }: { username?: string; brand?: string; generatedAt?: Date } = {},
+  {
+    username = "",
+    brand = "account-kit",
+    generatedAt = new Date(),
+    locale,
+    labels,
+  }: {
+    username?: string
+    brand?: string
+    generatedAt?: Date
+    locale?: string
+    labels?: Pick<TwoFactorLabels, "recoveryFileTitle" | "recoveryFileAccount" | "recoveryFileGenerated" | "recoveryFileOnce">
+  } = {},
 ) {
+  const L = { ...defaultTwoFactorLabels[resolveLocale(locale)], ...labels }
   return [
-    `${brand} - 两步验证恢复码 / 2FA recovery codes`,
-    username ? `账号 / Account: ${username}` : null,
-    `生成时间 / Generated: ${generatedAt.toISOString()}`,
-    "每个恢复码只能使用一次 / Each code can be used once.",
+    interpolate(L.recoveryFileTitle, { brand }),
+    username ? interpolate(L.recoveryFileAccount, { username }) : null,
+    interpolate(L.recoveryFileGenerated, { time: generatedAt.toISOString() }),
+    L.recoveryFileOnce,
     "",
     ...codes,
     "",

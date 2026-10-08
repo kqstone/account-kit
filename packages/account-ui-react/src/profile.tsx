@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react"
 import { ensureAccountStyle, type AccountClient, type AccountUser, type ProfileUpdateResult } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { useCountdown } from "./security"
 import { errorCodeOf, initialsOf, interpolate, messageOf, type DeepPartial } from "./utils"
@@ -127,7 +127,8 @@ export function AvatarUploader({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveProfileLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [current, setCurrent] = useState<AccountUser | null>(user || null)
@@ -231,7 +232,8 @@ export function ProfileFields({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveProfileLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [fullName, setFullName] = useState(user?.full_name || "")
   const [institution, setInstitution] = useState(user?.institution || "")
   const [gender, setGender] = useState(user?.gender || "")

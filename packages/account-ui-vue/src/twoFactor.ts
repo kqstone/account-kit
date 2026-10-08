@@ -1,6 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TrustedDevice, type TwoFactorStatus } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveTwoFactorLabels, type TwoFactorLabels } from "./labels"
 import {
   canSubmitFactor,
@@ -71,7 +71,8 @@ export const TwoFactorSettings = defineComponent({
     let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveTwoFactorLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveTwoFactorLabels(locale.value, props.labels, messages)
     const errText = (e: unknown) => twoFactorErrorMessage(e, L())
     const inputs = () => ({ code: code.value, recoveryCode: recoveryCode.value, emailCode: emailCode.value })
 
@@ -207,7 +208,7 @@ export const TwoFactorSettings = defineComponent({
             }),
             btn("outline", labels.download, {
               onClick: () => {
-                const text = recoveryCodesText(recoveryCodes.value, { username: props.username, brand: props.brand })
+                const text = recoveryCodesText(recoveryCodes.value, { username: props.username, brand: props.brand, labels })
                 const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }))
                 const a = document.createElement("a")
                 a.href = url
@@ -475,7 +476,8 @@ export const TwoFactorLoginDialog = defineComponent({
     let cooldownTimer: ReturnType<typeof setInterval> | null = null
 
     const locale = useKitLocale(() => props.language)
-    const L = () => resolveTwoFactorLabels(locale.value, props.labels)
+    const { messages } = useAccountI18n()
+    const L = () => resolveTwoFactorLabels(locale.value, props.labels, messages)
     const challengeInfo = () => normalizeChallenge(props.challenge)
     const inputs = () => ({ code: code.value, recoveryCode: recoveryCode.value, emailCode: emailCode.value })
 

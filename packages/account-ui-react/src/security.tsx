@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef, type FormEvent, type ReactNode } from "react"
 import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { interpolate, messageOf, type DeepPartial } from "./utils"
 
@@ -55,7 +55,8 @@ export const CaptchaImage = forwardRef<
 >(function CaptchaImage({ client, value, onChange, onCaptchaId, onError, language, labels }, ref) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveProfileLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [image, setImage] = useState("")
   const [error, setError] = useState("")
 
@@ -122,7 +123,8 @@ export function ChangeEmailForm({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveProfileLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [newEmail, setNewEmail] = useState("")
   const [code, setCode] = useState("")
   const [password, setPassword] = useState("")
@@ -221,7 +223,8 @@ export function DeleteAccountForm({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveProfileLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [password, setPassword] = useState("")
   const [factor, setFactor] = useState("")
   const [emailCode, setEmailCode] = useState("")
@@ -321,7 +324,8 @@ export function LogoutButton({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveProfileLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
   const [busy, setBusy] = useState(false)
   async function run() {
     setBusy(true)

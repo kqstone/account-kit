@@ -1,6 +1,6 @@
 import { computed, defineComponent, h, onMounted, ref, type PropType } from "vue"
 import { AccountApiError, ensureAccountStyle, type AccountClient } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, type FormLabels } from "./labels"
 import { formatError, interpolate, textOf, type DeepPartial } from "./utils"
 
@@ -24,7 +24,8 @@ export const LoginForm = defineComponent({
   setup(props, { emit, slots }) {
     ensureAccountStyle()
     const locale = useKitLocale(() => props.language)
-    const L = computed(() => resolveFormLabels(locale.value, props.labels))
+    const { messages } = useAccountI18n()
+    const L = computed(() => resolveFormLabels(locale.value, props.labels, messages))
     const username = ref(props.initialUsername || "")
     const password = ref(props.initialPassword || "")
     const error = ref("")
@@ -195,7 +196,8 @@ export const RegisterForm = defineComponent({
   setup(props, { emit, slots }) {
     ensureAccountStyle()
     const locale = useKitLocale(() => props.language)
-    const L = computed(() => resolveFormLabels(locale.value, props.labels))
+    const { messages } = useAccountI18n()
+    const L = computed(() => resolveFormLabels(locale.value, props.labels, messages))
     const username = ref("")
     const email = ref("")
     const password = ref("")
@@ -315,7 +317,8 @@ export const ResetPasswordForm = defineComponent({
   setup(props, { emit }) {
     ensureAccountStyle()
     const locale = useKitLocale(() => props.language)
-    const L = computed(() => resolveFormLabels(locale.value, props.labels))
+    const { messages } = useAccountI18n()
+    const L = computed(() => resolveFormLabels(locale.value, props.labels, messages))
     const email = ref("")
     const code = ref("")
     const password = ref("")

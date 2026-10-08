@@ -198,7 +198,11 @@ async def login(
     except HTTPException as exc:
         invalid = exc.status_code == 401 and error_code_of(exc) == "INVALID_CREDENTIALS"
         if invalid or exc.status_code == 403:
-            meta = {"username": name[:50], "reason": "invalid_credentials" if invalid else str(exc.detail)[:64]}
+            if invalid:
+                reason = "invalid_credentials"
+            else:
+                reason = (error_code_of(exc) or str(exc.detail))[:64]
+            meta = {"username": name[:50], "reason": reason}
             if config.audit_admin_login:
                 meta["is_admin"] = bool(candidate.is_admin) if candidate is not None else False
             await audit(

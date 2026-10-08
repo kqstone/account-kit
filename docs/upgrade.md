@@ -20,6 +20,8 @@
 | `mailer(..., language)` 仍接收 `"zh"` / `"en"` | 兼容 |
 | UI labels 字典 key 由 `zh` 改为 `zh-CN`（`language="zh"` 仍映射到中文） | 覆盖 `labels` 时按新 key |
 | UI 新增 Provider / `getLocale` / `formatError` | 可选接入 |
+| UI Provider / 插件用 `messages` 覆盖文案（`labels` 仅为别名） | 可选；组件 `labels` prop 仍可用 |
+| React `AccountKitProvider` 可传 `i18n`（订阅 `languageChanged`）；Vue 插件可传 `i18n` | 可选；`followI18next` / `followVueI18n` 仍可用 |
 
 `SESSION_REPLACED` 的字符串 `detail` 在两种语言下都仍是字面量 `SESSION_REPLACED`。
 
@@ -42,7 +44,7 @@ AccountKitConfig(
 )
 ```
 
-前端：用 `AccountKitProvider` / `provideAccountI18n`（或 `followVueI18n` / `followI18next`），`createAccountClient({ getLocale })` 自动带 `X-Locale`。详见 [i18n.md](i18n.md)。
+前端：用 `AccountKitProvider` / `accountKitI18n` / `provideAccountI18n`。可传 `messages` 覆盖目录；React 可把 i18next 实例交给 `i18n` prop，Vue 插件同样接受 `i18n`。`createAccountClient({ getLocale: followVueI18n(i18n) })` 或 `{ getLocale: () => i18n.language }` 自动带 `X-Locale`。详见 [i18n.md](i18n.md)。
 
 ---
 

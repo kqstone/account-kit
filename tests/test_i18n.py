@@ -290,6 +290,65 @@ async def test_host_http_exception_untouched():
     set_config(AccountKitConfig(jwt_secret="test-secret"))
 
 
+async def test_login_failed_audit_reason_uses_error_code(api):
+    import json
+
+    from sqlalchemy import select
+
+    from account_kit.models import AuthAuditLog, User
+
+    await approved_user(api, username="audr1", login=False)
+    bad = await api["client"].post(
+        "/api/auth/login",
+        data={"username": "audr1", "password": "wrong"},
+        headers={"X-Locale": "zh-CN"},
+    )
+    assert bad.status_code == 401
+    assert bad.json()["detail"] == "用户名或密码错误"
+    assert bad.json()["code"] == "INVALID_CREDENTIALS"
+
+    en_bad = await api["client"].post(
+        "/api/auth/login",
+        data={"username": "audr1", "password": "wrong"},
+        headers={"X-Locale": "en"},
+    )
+    assert en_bad.status_code == 401
+    assert en_bad.json()["detail"] == "Incorrect username or password"
+
+    user, _ = await approved_user(api, username="audr2", login=False)
+    async with api["sessions"]() as db:
+        row = await db.get(User, user["id"])
+        row.is_active = False
+        await db.commit()
+    disabled = await api["client"].post(
+        "/api/auth/login",
+        data={"username": "audr2", "password": "secret1"},
+        headers={"X-Locale": "zh-CN"},
+    )
+    assert disabled.status_code == 403
+    assert disabled.json()["code"] == "USER_DISABLED"
+    assert disabled.json()["detail"] == "账号已被停用"
+
+    async with api["sessions"]() as db:
+        rows = (await db.execute(select(AuthAuditLog).where(AuthAuditLog.event == "login_failed"))).scalars().all()
+        by_user: dict[str, list[str]] = {}
+        for row in rows:
+            if not row.meta:
+                continue
+            meta = json.loads(row.meta)
+            name = meta.get("username")
+            reason = meta.get("reason")
+            if name and reason:
+                by_user.setdefault(name, []).append(reason)
+
+    assert by_user["audr1"]
+    assert all(reason == "invalid_credentials" for reason in by_user["audr1"])
+    assert "用户名或密码错误" not in by_user["audr1"]
+    assert "Incorrect username or password" not in by_user["audr1"]
+    assert by_user["audr2"] == ["USER_DISABLED"]
+    assert by_user["audr2"][0] != disabled.json()["detail"]
+
+
 def test_t_override_and_params():
     set_config(
         AccountKitConfig(

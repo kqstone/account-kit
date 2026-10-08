@@ -60,7 +60,7 @@ function localeBlock(src, locale) {
   throw new Error(`unclosed locale ${locale}`)
 }
 
-for (const name of ["errors.ts", "labels.ts", "utils.ts"]) {
+for (const name of ["errors.ts", "labels.ts", "utils.ts", "mfa.ts"]) {
   const a = read(vue, name)
   const b = read(react, name)
   if (a !== b) fail(`${name}: Vue and React sources differ`)
@@ -74,6 +74,8 @@ if (zhErr.join() !== enErr.join()) {
 }
 
 const labels = read(vue, "labels.ts")
+if (!/export type AccountMessagesOverride/.test(labels)) fail("AccountMessagesOverride type missing from labels.ts")
+if (!/export type AccountLocaleMessages/.test(labels)) fail("AccountLocaleMessages type missing from labels.ts")
 for (const name of ["twoFactorZh", "twoFactorEn", "profileZh", "profileEn", "formZh", "formEn"]) {
   extractNamedObject(labels, name)
 }

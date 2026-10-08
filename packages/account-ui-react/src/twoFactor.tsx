@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
 import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TrustedDevice, type TwoFactorStatus } from "./client"
-import { useKitLocale } from "./i18n"
+import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveTwoFactorLabels, type TwoFactorLabels } from "./labels"
 import {
   canSubmitFactor,
@@ -55,7 +55,8 @@ export function TwoFactorSettings({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveTwoFactorLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveTwoFactorLabels(locale, labels, messages), [locale, labels, messages])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState("")
   const [status, setStatus] = useState<TwoFactorStatus | null>(null)
@@ -235,7 +236,7 @@ export function TwoFactorSettings({
             type="button"
             className={btnClass("outline")}
             onClick={() => {
-              const text = recoveryCodesText(recoveryCodes, { username, brand })
+              const text = recoveryCodesText(recoveryCodes, { username, brand, labels: L })
               const url = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }))
               const a = document.createElement("a")
               a.href = url
@@ -527,7 +528,8 @@ export function TwoFactorLoginDialog({
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
-  const L = useMemo(() => resolveTwoFactorLabels(locale, labels), [locale, labels])
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveTwoFactorLabels(locale, labels, messages), [locale, labels, messages])
   const info = normalizeChallenge(challenge)
   const [mode, setMode] = useState<"code" | "conflict">("code")
   const [factor, setFactor] = useState<SecondFactor>(FACTOR_TOTP)
