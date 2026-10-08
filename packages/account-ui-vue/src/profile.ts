@@ -1,5 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
+import { useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { errorCodeOf, initialsOf, interpolate, messageOf, textOf, type DeepPartial } from "./utils"
 
@@ -80,7 +81,7 @@ export const AvatarUploader = defineComponent({
     client: { type: Object as PropType<AccountClient>, required: true },
     token: { type: String, required: true },
     user: { type: Object as PropType<AccountUser | null>, default: null },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
     size: { type: Number, default: 72 },
     accept: { type: String, default: "image/jpeg,image/png,image/webp" },
@@ -103,7 +104,8 @@ export const AvatarUploader = defineComponent({
       },
     )
 
-    const L = () => resolveProfileLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const L = () => resolveProfileLabels(locale.value, props.labels)
 
     async function upload(file: File) {
       busy.value = true
@@ -192,7 +194,7 @@ export const ProfileFields = defineComponent({
     client: { type: Object as PropType<AccountClient>, required: true },
     token: { type: String, required: true },
     user: { type: Object as PropType<AccountUser | null>, default: null },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
     showChangePassword: { type: Boolean, default: true },
     /**
@@ -233,7 +235,7 @@ export const ProfileFields = defineComponent({
       error.value = ""
       sending.value = true
       try {
-        await props.client.sendCode(email, "change_password", props.language, props.token)
+        await props.client.sendCode(email, "change_password", locale.value, props.token)
         info.value = interpolate(labels.codeSentTo, { email })
         cooldown.value = 60
         if (cooldownTimer) clearInterval(cooldownTimer)
@@ -261,7 +263,8 @@ export const ProfileFields = defineComponent({
       },
     )
 
-    const L = () => resolveProfileLabels(props.language, props.labels)
+    const locale = useKitLocale(() => props.language)
+    const L = () => resolveProfileLabels(locale.value, props.labels)
 
     async function submit() {
       const labels = L()

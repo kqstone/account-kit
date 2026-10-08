@@ -26,6 +26,7 @@ export function errorDetail(error: unknown): Record<string, unknown> | string | 
 }
 
 export function errorCodeOf(error: unknown): string | null {
+  if (error instanceof AccountApiError && error.code) return error.code
   const detail = errorDetail(error)
   return detail && typeof detail === "object" && typeof detail.code === "string" ? detail.code : null
 }
@@ -134,7 +135,8 @@ const KNOWN_ERRORS = new Set([
 export function describeTwoFactorError(error: unknown) {
   const status = error instanceof AccountApiError ? error.status : 0
   const detail = errorDetail(error)
-  let code = detail && typeof detail === "object" && typeof detail.code === "string" ? detail.code : null
+  let code = error instanceof AccountApiError ? error.code || null : null
+  if (!code && detail && typeof detail === "object" && typeof detail.code === "string") code = detail.code
   if (!code && status === 429) code = "RATE_LIMITED"
   const fallback =
     (detail && typeof detail === "object" && typeof detail.message === "string" && detail.message) ||

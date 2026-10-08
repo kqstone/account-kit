@@ -1,15 +1,8 @@
-import { defineComponent, h, onMounted, ref, type PropType } from "vue"
+import { computed, defineComponent, h, onMounted, ref, type PropType } from "vue"
 import { AccountApiError, ensureAccountStyle, type AccountClient } from "./client"
-
-function textOf(event: Event) {
-  return (event.target as HTMLInputElement).value
-}
-
-function messageOf(error: unknown) {
-  if (error instanceof AccountApiError) return error.message || "请求失败"
-  if (error instanceof Error) return error.message
-  return "请求失败"
-}
+import { useKitLocale } from "./i18n"
+import { resolveFormLabels, type FormLabels } from "./labels"
+import { formatError, interpolate, textOf, type DeepPartial } from "./utils"
 
 function field(label: string, input: ReturnType<typeof h>) {
   return h("label", [label, input])
@@ -24,16 +17,19 @@ export const LoginForm = defineComponent({
     initialPassword: { type: String, default: "" },
     trustedDeviceToken: { type: [String, Function] as PropType<string | ((username: string) => string)>, default: "" },
     beforeSubmit: { type: Function as PropType<() => boolean | Promise<boolean | void>>, default: null },
+    language: { type: String, default: undefined },
+    labels: { type: Object as PropType<DeepPartial<FormLabels>>, default: null },
   },
   emits: ["success", "mfa"],
   setup(props, { emit, slots }) {
     ensureAccountStyle()
+    const locale = useKitLocale(() => props.language)
+    const L = computed(() => resolveFormLabels(locale.value, props.labels))
     const username = ref(props.initialUsername || "")
     const password = ref(props.initialPassword || "")
     const error = ref("")
     const busy = ref(false)
     const force = ref(false)
-    // Image captcha (428 CAPTCHA_REQUIRED after repeated failures, when the host enables it)
     const captchaNeeded = ref(false)
     const captchaId = ref("")
     const captchaImage = ref("")
@@ -49,14 +45,14 @@ export const LoginForm = defineComponent({
         captchaId.value = data.captcha_id || ""
         captchaImage.value = data.image_base64 ? `data:image/png;base64,${data.image_base64}` : ""
       } catch {
-        error.value = "验证码加载失败，请点击换一张"
+        error.value = L.value.captchaLoadFailed
       }
     }
 
     async function submit() {
       error.value = ""
       if (captchaNeeded.value && (!captchaId.value || !captchaCode.value.trim())) {
-        error.value = "请输入图形验证码"
+        error.value = L.value.captchaEnter
         return
       }
       busy.value = true
@@ -88,17 +84,21 @@ export const LoginForm = defineComponent({
             : null
         const status = err instanceof AccountApiError ? err.status : 0
         const code = detail && typeof detail === "object" ? detail.code : undefined
-        // A captcha is single-use: any reply after sending one needs a fresh image.
         if (usedCaptcha) captchaNeeded.value = false
-        if (status === 428 || code === "CAPTCHA_REQUIRED" || code === "CAPTCHA_INVALID" || (detail && typeof detail === "object" && detail.captcha_required)) {
+        if (
+          status === 428 ||
+          code === "CAPTCHA_REQUIRED" ||
+          code === "CAPTCHA_INVALID" ||
+          (detail && typeof detail === "object" && detail.captcha_required)
+        ) {
           captchaNeeded.value = true
           await loadCaptcha()
           error.value =
             code === "CAPTCHA_INVALID"
-              ? "图形验证码错误或已失效，请重试"
+              ? L.value.captchaInvalid
               : status === 428 || code === "CAPTCHA_REQUIRED"
-                ? "请输入图形验证码"
-                : messageOf(err)
+                ? L.value.captchaEnter
+                : formatError(err, L.value, locale.value)
           return
         }
         if (err instanceof AccountApiError && err.status === 401 && detail?.code === "MFA_REQUIRED" && detail.challenge_token) {
@@ -107,10 +107,12 @@ export const LoginForm = defineComponent({
         }
         if (err instanceof AccountApiError && err.status === 409 && detail?.code === "ALREADY_LOGGED_IN") {
           force.value = true
-          error.value = `该账号已在${detail.device_name || "其他设备"}登录，再次提交将挤掉该设备`
+          error.value = interpolate(L.value.alreadyLoggedIn, {
+            device: (detail && typeof detail === "object" && detail.device_name) || L.value.errors.UNKNOWN_DEVICE,
+          })
           return
         }
-        error.value = messageOf(err)
+        error.value = formatError(err, L.value, locale.value)
       } finally {
         busy.value = false
       }
@@ -127,30 +129,54 @@ export const LoginForm = defineComponent({
           },
         },
         [
-          field("用户名", h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
-          field("密码", h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (event: Event) => { password.value = textOf(event) } })),
+          field(
+            L.value.username,
+            h("input", {
+              value: username.value,
+              autocomplete: "username",
+              onInput: (event: Event) => {
+                username.value = textOf(event)
+              },
+            }),
+          ),
+          field(
+            L.value.password,
+            h("input", {
+              type: "password",
+              value: password.value,
+              autocomplete: "current-password",
+              onInput: (event: Event) => {
+                password.value = textOf(event)
+              },
+            }),
+          ),
           captchaNeeded.value
             ? field(
-                "图形验证码",
+                L.value.captcha,
                 h("span", { class: "ak-row" }, [
                   h("input", {
                     value: captchaCode.value,
                     autocomplete: "off",
-                    placeholder: "输入图中字符",
+                    placeholder: L.value.captchaPlaceholder,
                     onInput: (event: Event) => {
                       captchaCode.value = textOf(event)
                     },
                   }),
                   captchaImage.value
-                    ? h("img", { src: captchaImage.value, alt: "captcha", style: "height:36px;cursor:pointer", onClick: () => void loadCaptcha() })
+                    ? h("img", {
+                        src: captchaImage.value,
+                        alt: "captcha",
+                        style: "height:36px;cursor:pointer",
+                        onClick: () => void loadCaptcha(),
+                      })
                     : null,
-                  h("button", { type: "button", onClick: () => void loadCaptcha() }, "换一张"),
+                  h("button", { type: "button", onClick: () => void loadCaptcha() }, L.value.captchaRefresh),
                 ]),
               )
             : null,
           slots.default?.(),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
-          h("button", { type: "submit", disabled: busy.value }, busy.value ? "登录中…" : force.value ? "强制登录" : "登录"),
+          h("button", { type: "submit", disabled: busy.value }, busy.value ? L.value.loggingIn : force.value ? L.value.forceLogin : L.value.login),
         ],
       )
   },
@@ -160,13 +186,16 @@ export const RegisterForm = defineComponent({
   name: "RegisterForm",
   props: {
     client: { type: Object as PropType<AccountClient>, required: true },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
+    labels: { type: Object as PropType<DeepPartial<FormLabels>>, default: null },
     extraPayload: { type: Object as PropType<Record<string, unknown>>, default: () => ({}) },
     beforeSubmit: { type: Function as PropType<() => boolean | Promise<boolean | void>>, default: null },
   },
   emits: ["success"],
   setup(props, { emit, slots }) {
     ensureAccountStyle()
+    const locale = useKitLocale(() => props.language)
+    const L = computed(() => resolveFormLabels(locale.value, props.labels))
     const username = ref("")
     const email = ref("")
     const password = ref("")
@@ -193,9 +222,9 @@ export const RegisterForm = defineComponent({
       error.value = ""
       sending.value = true
       try {
-        await props.client.sendCode(email.value.trim(), "register", props.language)
+        await props.client.sendCode(email.value.trim(), "register", locale.value)
       } catch (err) {
-        error.value = messageOf(err)
+        error.value = formatError(err, L.value, locale.value)
       } finally {
         sending.value = false
       }
@@ -223,7 +252,7 @@ export const RegisterForm = defineComponent({
         })
         emit("success", user)
       } catch (err) {
-        error.value = messageOf(err)
+        error.value = formatError(err, L.value, locale.value)
       } finally {
         busy.value = false
       }
@@ -240,37 +269,36 @@ export const RegisterForm = defineComponent({
           },
         },
         [
-          field("用户名", h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
-          field("邮箱", h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
-          field("密码", h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
-          field("姓名（可选）", h("input", { value: fullName.value, autocomplete: "name", onInput: (event: Event) => { fullName.value = textOf(event) } })),
-          field("机构（可选）", h("input", { value: institution.value, onInput: (event: Event) => { institution.value = textOf(event) } })),
+          field(L.value.username, h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
+          field(L.value.email, h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
+          field(L.value.password, h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
+          field(L.value.fullNameOptional, h("input", { value: fullName.value, autocomplete: "name", onInput: (event: Event) => { fullName.value = textOf(event) } })),
+          field(L.value.institutionOptional, h("input", { value: institution.value, onInput: (event: Event) => { institution.value = textOf(event) } })),
           field(
-            "性别（可选）",
-            h(
-              "select",
-              { value: gender.value, onChange: (event: Event) => { gender.value = textOf(event) } },
-              [h("option", { value: "" }, "未指定"), h("option", { value: "male" }, "男"), h("option", { value: "female" }, "女")],
-            ),
+            L.value.genderOptional,
+            h("select", { value: gender.value, onChange: (event: Event) => { gender.value = textOf(event) } }, [
+              h("option", { value: "" }, L.value.genderUnspecified),
+              h("option", { value: "male" }, L.value.genderMale),
+              h("option", { value: "female" }, L.value.genderFemale),
+            ]),
           ),
-          field("出生年月（可选）", h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })),
+          field(L.value.birthOptional, h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })),
           h("div", { class: "ak-row" }, [
-            field("验证码", h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
-            h("button", { type: "button", disabled: sending.value, onClick: () => void sendCode() }, sending.value ? "发送中…" : "发送验证码"),
+            field(L.value.code, h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
+            h("button", { type: "button", disabled: sending.value, onClick: () => void sendCode() }, sending.value ? L.value.sending : L.value.sendCode),
           ]),
           roles.value.length
             ? field(
-                "角色",
-                h(
-                  "select",
-                  { value: role.value, onChange: (event: Event) => { role.value = textOf(event) } },
-                  [h("option", { value: "" }, "默认"), ...roles.value.map((item) => h("option", { value: item.code }, item.name))],
-                ),
+                L.value.role,
+                h("select", { value: role.value, onChange: (event: Event) => { role.value = textOf(event) } }, [
+                  h("option", { value: "" }, L.value.roleDefault),
+                  ...roles.value.map((item) => h("option", { value: item.code }, item.name)),
+                ]),
               )
             : null,
           slots.default?.(),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
-          h("button", { type: "submit", disabled: busy.value }, busy.value ? "提交中…" : "注册"),
+          h("button", { type: "submit", disabled: busy.value }, busy.value ? L.value.submitting : L.value.register),
         ],
       )
   },
@@ -280,11 +308,14 @@ export const ResetPasswordForm = defineComponent({
   name: "ResetPasswordForm",
   props: {
     client: { type: Object as PropType<AccountClient>, required: true },
-    language: { type: String, default: "zh" },
+    language: { type: String, default: undefined },
+    labels: { type: Object as PropType<DeepPartial<FormLabels>>, default: null },
   },
   emits: ["success"],
   setup(props, { emit }) {
     ensureAccountStyle()
+    const locale = useKitLocale(() => props.language)
+    const L = computed(() => resolveFormLabels(locale.value, props.labels))
     const email = ref("")
     const code = ref("")
     const password = ref("")
@@ -296,9 +327,9 @@ export const ResetPasswordForm = defineComponent({
       error.value = ""
       sending.value = true
       try {
-        await props.client.sendCode(email.value.trim(), "reset_password", props.language)
+        await props.client.sendCode(email.value.trim(), "reset_password", locale.value)
       } catch (err) {
-        error.value = messageOf(err)
+        error.value = formatError(err, L.value, locale.value)
       } finally {
         sending.value = false
       }
@@ -311,7 +342,7 @@ export const ResetPasswordForm = defineComponent({
         await props.client.resetPassword(email.value.trim(), code.value.trim(), password.value)
         emit("success")
       } catch (err) {
-        error.value = messageOf(err)
+        error.value = formatError(err, L.value, locale.value)
       } finally {
         busy.value = false
       }
@@ -328,14 +359,14 @@ export const ResetPasswordForm = defineComponent({
           },
         },
         [
-          field("邮箱", h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
+          field(L.value.email, h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
           h("div", { class: "ak-row" }, [
-            field("验证码", h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
-            h("button", { type: "button", disabled: sending.value, onClick: () => void sendCode() }, sending.value ? "发送中…" : "发送验证码"),
+            field(L.value.code, h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
+            h("button", { type: "button", disabled: sending.value, onClick: () => void sendCode() }, sending.value ? L.value.sending : L.value.sendCode),
           ]),
-          field("新密码", h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
+          field(L.value.newPassword, h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
-          h("button", { type: "submit", disabled: busy.value }, busy.value ? "提交中…" : "重置密码"),
+          h("button", { type: "submit", disabled: busy.value }, busy.value ? L.value.submitting : L.value.resetPassword),
         ],
       )
   },

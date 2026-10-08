@@ -45,6 +45,8 @@ export type DeleteAccountPayload = {
 export type AccountClientOptions = {
   /** Token used by calls that accept an optional token (e.g. ``sendCode``). */
   getToken?: () => string | null | undefined
+  /** Sent as ``X-Locale`` on every request; also the default for send* ``language``. */
+  getLocale?: () => string | null | undefined
   /** Path of the kit logout route (``AccountKitConfig.logout_path``). Default ``/logout``. */
   logoutPath?: string
   /**
@@ -124,12 +126,14 @@ export class AccountApiError extends Error {
     this.body = body
   }
 
-  /** Machine-readable error code (``detail.code``), e.g. ``EMAIL_CODE_REQUIRED`` or ``RATE_LIMITED``. */
+  /** Machine-readable error code (``detail.code`` then top-level ``body.code``). */
   get code(): string | undefined {
-    const detail = (this.body as { detail?: unknown } | null)?.detail
+    const body = this.body as { detail?: unknown; code?: unknown } | null
+    const detail = body?.detail
     if (detail && typeof detail === "object" && typeof (detail as { code?: unknown }).code === "string") {
       return (detail as { code: string }).code
     }
+    if (body && typeof body.code === "string") return body.code
     return undefined
   }
 }
@@ -164,9 +168,21 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
   const logoutPath = "/" + (options.logoutPath || "/logout").replace(/^\/+/, "")
   let refreshing: Promise<TokenPair> | null = null
 
+  function localeHeader() {
+    const raw = options.getLocale?.()
+    return raw && String(raw).trim() ? String(raw).trim() : ""
+  }
+
+  function emailLanguage(explicit?: string | null) {
+    if (explicit && String(explicit).trim()) return String(explicit).trim()
+    return localeHeader() || undefined
+  }
+
   async function send(path: string, init: RequestInit, token?: string | null) {
     const headers = new Headers(init.headers)
     if (token) headers.set("Authorization", `Bearer ${token}`)
+    const locale = localeHeader()
+    if (locale && !headers.has("X-Locale")) headers.set("X-Locale", locale)
     if (init.body instanceof FormData) headers.delete("Content-Type")
     const response = await fetch(prefix + path, { ...init, headers })
     const body = parseBody(await response.text())
@@ -230,8 +246,13 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
 
   return {
     /** ``token`` (or ``options.getToken()``) is sent when available; ``change_password`` requires it. */
-    sendCode(email: string, purpose: CodePurpose, language = "zh", token?: string | null) {
-      return json("/send-code", { email, purpose, language }, token ?? options.getToken?.() ?? null)
+    sendCode(email: string, purpose: CodePurpose, language?: string, token?: string | null) {
+      const lang = emailLanguage(language)
+      return json(
+        "/send-code",
+        { email, purpose, ...(lang ? { language: lang } : {}) },
+        token ?? options.getToken?.() ?? null,
+      )
     },
     register(payload: Record<string, unknown>) {
       return json("/register", payload) as Promise<AccountUser>
@@ -321,8 +342,9 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         token,
       ) as Promise<{ status: string; recovery_codes: string[] }>
     },
-    sendDisableEmailCode(token: string, language = "zh") {
-      return json("/2fa/disable/email-code", { language }, token) as Promise<{
+    sendDisableEmailCode(token: string, language?: string) {
+      const lang = emailLanguage(language)
+      return json("/2fa/disable/email-code", { ...(lang ? { language: lang } : {}) }, token) as Promise<{
         status: string
         email?: string
         expires_in?: number
@@ -363,8 +385,12 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         body: form,
       }) as Promise<LoginSecondFactorResult>
     },
-    sendLoginEmailCode(challengeToken: string, language = "zh") {
-      return json("/login/2fa/email/send", { challenge_token: challengeToken, language }) as Promise<{
+    sendLoginEmailCode(challengeToken: string, language?: string) {
+      const lang = emailLanguage(language)
+      return json("/login/2fa/email/send", {
+        challenge_token: challengeToken,
+        ...(lang ? { language: lang } : {}),
+      }) as Promise<{
         status: string
         email?: string
         expires_in?: number
@@ -385,7 +411,11 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
     sendChangeEmailCode(token: string, newEmail: string, extra?: { password?: string; language?: string }) {
       return json(
         "/me/email/send-code",
-        { new_email: newEmail, language: extra?.language || "zh", ...(extra?.password ? { password: extra.password } : {}) },
+        {
+          new_email: newEmail,
+          ...(emailLanguage(extra?.language) ? { language: emailLanguage(extra?.language) } : {}),
+          ...(extra?.password ? { password: extra.password } : {}),
+        },
         token,
       ) as Promise<CodeSentResult>
     },
@@ -410,8 +440,9 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         token,
       ) as Promise<{ status: string; mode: string }>
     },
-    sendDeleteAccountEmailCode(token: string, language = "zh") {
-      return json("/me/delete/email-code", { language }, token) as Promise<CodeSentResult>
+    sendDeleteAccountEmailCode(token: string, language?: string) {
+      const lang = emailLanguage(language)
+      return json("/me/delete/email-code", { ...(lang ? { language: lang } : {}) }, token) as Promise<CodeSentResult>
     },
     uploadAvatar(token: string, file: Blob, filename?: string) {
       const form = new FormData()

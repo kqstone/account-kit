@@ -1,4 +1,5 @@
-import { mergeLabels, resolveLocale, type DeepPartial } from "./utils"
+import { defaultErrorLabels } from "./errors"
+import { mergeLabels, resolveLocale, type DeepPartial, type KitLocale } from "./utils"
 
 export type TwoFactorLabels = {
   title: string
@@ -115,6 +116,41 @@ export type ProfileLabels = {
   captchaPlaceholder: string
   captchaRefresh: string
   captchaLoadFailed: string
+}
+
+export type FormLabels = {
+  username: string
+  password: string
+  email: string
+  fullNameOptional: string
+  institutionOptional: string
+  genderOptional: string
+  genderUnspecified: string
+  genderMale: string
+  genderFemale: string
+  birthOptional: string
+  code: string
+  sendCode: string
+  sending: string
+  role: string
+  roleDefault: string
+  newPassword: string
+  submit: string
+  submitting: string
+  register: string
+  login: string
+  loggingIn: string
+  forceLogin: string
+  resetPassword: string
+  captcha: string
+  captchaPlaceholder: string
+  captchaRefresh: string
+  captchaLoadFailed: string
+  captchaEnter: string
+  captchaInvalid: string
+  alreadyLoggedIn: string
+  error: string
+  errors: Record<string, string>
 }
 
 const twoFactorZh: TwoFactorLabels = {
@@ -383,8 +419,79 @@ const profileEn: ProfileLabels = {
   captchaLoadFailed: "Could not load the captcha, click to retry",
 }
 
-export const defaultTwoFactorLabels = { zh: twoFactorZh, en: twoFactorEn }
-export const defaultProfileLabels = { zh: profileZh, en: profileEn }
+const formZh: FormLabels = {
+  username: "用户名",
+  password: "密码",
+  email: "邮箱",
+  fullNameOptional: "姓名（可选）",
+  institutionOptional: "机构（可选）",
+  genderOptional: "性别（可选）",
+  genderUnspecified: "未指定",
+  genderMale: "男",
+  genderFemale: "女",
+  birthOptional: "出生年月（可选）",
+  code: "验证码",
+  sendCode: "发送验证码",
+  sending: "发送中…",
+  role: "角色",
+  roleDefault: "默认",
+  newPassword: "新密码",
+  submit: "提交中…",
+  submitting: "提交中…",
+  register: "注册",
+  login: "登录",
+  loggingIn: "登录中…",
+  forceLogin: "强制登录",
+  resetPassword: "重置密码",
+  captcha: "图形验证码",
+  captchaPlaceholder: "输入图中字符",
+  captchaRefresh: "换一张",
+  captchaLoadFailed: "验证码加载失败，请点击换一张",
+  captchaEnter: "请输入图形验证码",
+  captchaInvalid: "图形验证码错误或已失效，请重试",
+  alreadyLoggedIn: "该账号已在{device}登录，再次提交将挤掉该设备",
+  error: "请求失败",
+  errors: { ...defaultErrorLabels["zh-CN"] },
+}
+
+const formEn: FormLabels = {
+  username: "Username",
+  password: "Password",
+  email: "Email",
+  fullNameOptional: "Full name (optional)",
+  institutionOptional: "Institution (optional)",
+  genderOptional: "Gender (optional)",
+  genderUnspecified: "Unspecified",
+  genderMale: "Male",
+  genderFemale: "Female",
+  birthOptional: "Birth month (optional)",
+  code: "Code",
+  sendCode: "Send code",
+  sending: "Sending…",
+  role: "Role",
+  roleDefault: "Default",
+  newPassword: "New password",
+  submit: "Submitting…",
+  submitting: "Submitting…",
+  register: "Register",
+  login: "Sign in",
+  loggingIn: "Signing in…",
+  forceLogin: "Force sign-in",
+  resetPassword: "Reset password",
+  captcha: "Captcha",
+  captchaPlaceholder: "Enter the characters",
+  captchaRefresh: "New image",
+  captchaLoadFailed: "Could not load the captcha, click to retry",
+  captchaEnter: "Please enter the captcha",
+  captchaInvalid: "Captcha is wrong or expired, please retry",
+  alreadyLoggedIn: "This account is signed in on {device}. Submit again to replace that session.",
+  error: "Request failed",
+  errors: { ...defaultErrorLabels.en },
+}
+
+export const defaultTwoFactorLabels: Record<KitLocale, TwoFactorLabels> = { "zh-CN": twoFactorZh, en: twoFactorEn }
+export const defaultProfileLabels: Record<KitLocale, ProfileLabels> = { "zh-CN": profileZh, en: profileEn }
+export const defaultFormLabels: Record<KitLocale, FormLabels> = { "zh-CN": formZh, en: formEn }
 
 export function resolveTwoFactorLabels(language?: string, override?: DeepPartial<TwoFactorLabels> | null): TwoFactorLabels {
   return mergeLabels(defaultTwoFactorLabels[resolveLocale(language)], override)
@@ -392,4 +499,8 @@ export function resolveTwoFactorLabels(language?: string, override?: DeepPartial
 
 export function resolveProfileLabels(language?: string, override?: DeepPartial<ProfileLabels> | null): ProfileLabels {
   return mergeLabels(defaultProfileLabels[resolveLocale(language)], override)
+}
+
+export function resolveFormLabels(language?: string, override?: DeepPartial<FormLabels> | null): FormLabels {
+  return mergeLabels(defaultFormLabels[resolveLocale(language)], override)
 }

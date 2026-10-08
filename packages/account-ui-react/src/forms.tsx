@@ -1,12 +1,9 @@
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser, type TokenPair } from "./client"
+import { useKitLocale } from "./i18n"
+import { resolveFormLabels, type FormLabels } from "./labels"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
-
-function messageOf(error: unknown) {
-  if (error instanceof AccountApiError) return error.message || "请求失败"
-  if (error instanceof Error) return error.message
-  return "请求失败"
-}
+import { formatError, interpolate, type DeepPartial } from "./utils"
 
 export function LoginForm({
   client,
@@ -15,22 +12,26 @@ export function LoginForm({
   onSuccess,
   onTokens,
   onMfa,
+  language,
+  labels,
 }: {
   client: AccountClient
   deviceName?: string
   trustedDeviceToken?: string | ((username: string) => string)
   onSuccess: (token: string) => void
-  /** Full login response (includes ``refresh_token`` when the server enables refresh tokens). */
   onTokens?: (tokens: TokenPair) => void
   onMfa?: (challenge: MfaChallenge & { username: string; password: string; force: boolean }) => void
+  language?: string
+  labels?: DeepPartial<FormLabels> | null
 }) {
   ensureAccountStyle()
+  const locale = useKitLocale(language)
+  const L = useMemo(() => resolveFormLabels(locale, labels), [locale, labels])
   const [username, setUsername] = useState("")
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const [force, setForce] = useState(false)
-  // Image captcha (428 CAPTCHA_REQUIRED after repeated failures, when the host enables it)
   const [captchaNeeded, setCaptchaNeeded] = useState(false)
   const [captchaId, setCaptchaId] = useState("")
   const [captchaImage, setCaptchaImage] = useState("")
@@ -46,7 +47,7 @@ export function LoginForm({
       setCaptchaId(data.captcha_id || "")
       setCaptchaImage(data.image_base64 ? `data:image/png;base64,${data.image_base64}` : "")
     } catch {
-      setError("验证码加载失败，请点击换一张")
+      setError(L.captchaLoadFailed)
     }
   }
 
@@ -54,7 +55,7 @@ export function LoginForm({
     event.preventDefault()
     setError("")
     if (captchaNeeded && (!captchaId || !captchaCode.trim())) {
-      setError("请输入图形验证码")
+      setError(L.captchaEnter)
       return
     }
     setBusy(true)
@@ -81,28 +82,27 @@ export function LoginForm({
       const info = detail && typeof detail === "object" ? detail : null
       const status = err instanceof AccountApiError ? err.status : 0
       const code = info?.code
-      // A captcha is single-use: any reply after sending one needs a fresh image.
       if (usedCaptcha) setCaptchaNeeded(false)
       if (status === 428 || code === "CAPTCHA_REQUIRED" || code === "CAPTCHA_INVALID" || info?.captcha_required) {
         setCaptchaNeeded(true)
         await loadCaptcha()
         setError(
           code === "CAPTCHA_INVALID"
-            ? "图形验证码错误或已失效，请重试"
+            ? L.captchaInvalid
             : status === 428 || code === "CAPTCHA_REQUIRED"
-              ? "请输入图形验证码"
-              : messageOf(err),
+              ? L.captchaEnter
+              : formatError(err, L, locale),
         )
       } else if (status === 409 && code === "ALREADY_LOGGED_IN") {
         setForce(true)
-        setError(`该账号已在${info?.device_name || "其他设备"}登录，再次提交将挤掉该设备`)
+        setError(interpolate(L.alreadyLoggedIn, { device: info?.device_name || L.errors.UNKNOWN_DEVICE }))
       } else {
         const mfa = getMfaChallenge(err)
         if (mfa && onMfa) {
           onMfa({ ...mfa, username, password, force })
           return
         }
-        setError(messageOf(err))
+        setError(formatError(err, L, locale))
       }
     } finally {
       setBusy(false)
@@ -112,35 +112,35 @@ export function LoginForm({
   return (
     <form className="ak-form" onSubmit={submit}>
       <label>
-        用户名
+        {L.username}
         <input value={username} autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
       </label>
       <label>
-        密码
+        {L.password}
         <input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       </label>
       {captchaNeeded ? (
         <label>
-          图形验证码
+          {L.captcha}
           <span className="ak-row">
             <input
               value={captchaCode}
               autoComplete="off"
-              placeholder="输入图中字符"
+              placeholder={L.captchaPlaceholder}
               onChange={(event) => setCaptchaCode(event.target.value)}
             />
             {captchaImage ? (
               <img src={captchaImage} alt="captcha" style={{ height: 36, cursor: "pointer" }} onClick={() => void loadCaptcha()} />
             ) : null}
             <button type="button" onClick={() => void loadCaptcha()}>
-              换一张
+              {L.captchaRefresh}
             </button>
           </span>
         </label>
       ) : null}
       {error ? <p className="ak-error">{error}</p> : null}
       <button type="submit" disabled={busy}>
-        {busy ? "登录中…" : force ? "强制登录" : "登录"}
+        {busy ? L.loggingIn : force ? L.forceLogin : L.login}
       </button>
     </form>
   )
@@ -148,14 +148,18 @@ export function LoginForm({
 
 export function RegisterForm({
   client,
-  language = "zh",
+  language,
+  labels,
   onSuccess,
 }: {
   client: AccountClient
   language?: string
+  labels?: DeepPartial<FormLabels> | null
   onSuccess: (user: AccountUser) => void
 }) {
   ensureAccountStyle()
+  const locale = useKitLocale(language)
+  const L = useMemo(() => resolveFormLabels(locale, labels), [locale, labels])
   const [username, setUsername] = useState("")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -189,9 +193,9 @@ export function RegisterForm({
     setError("")
     setSending(true)
     try {
-      await client.sendCode(email.trim(), "register", language)
+      await client.sendCode(email.trim(), "register", locale)
     } catch (err) {
-      setError(messageOf(err))
+      setError(formatError(err, L, locale))
     } finally {
       setSending(false)
     }
@@ -215,7 +219,7 @@ export function RegisterForm({
       })
       onSuccess(user)
     } catch (err) {
-      setError(messageOf(err))
+      setError(formatError(err, L, locale))
     } finally {
       setBusy(false)
     }
@@ -224,51 +228,51 @@ export function RegisterForm({
   return (
     <form className="ak-form" onSubmit={submit}>
       <label>
-        用户名
+        {L.username}
         <input value={username} autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
       </label>
       <label>
-        邮箱
+        {L.email}
         <input type="email" value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
       </label>
       <label>
-        密码
+        {L.password}
         <input type="password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
       </label>
       <label>
-        姓名（可选）
+        {L.fullNameOptional}
         <input value={fullName} autoComplete="name" onChange={(event) => setFullName(event.target.value)} />
       </label>
       <label>
-        机构（可选）
+        {L.institutionOptional}
         <input value={institution} onChange={(event) => setInstitution(event.target.value)} />
       </label>
       <label>
-        性别（可选）
+        {L.genderOptional}
         <select value={gender} onChange={(event) => setGender(event.target.value)}>
-          <option value="">未指定</option>
-          <option value="male">男</option>
-          <option value="female">女</option>
+          <option value="">{L.genderUnspecified}</option>
+          <option value="male">{L.genderMale}</option>
+          <option value="female">{L.genderFemale}</option>
         </select>
       </label>
       <label>
-        出生年月（可选）
+        {L.birthOptional}
         <input type="month" value={birth} onChange={(event) => setBirth(event.target.value)} />
       </label>
       <div className="ak-row">
         <label>
-          验证码
+          {L.code}
           <input value={code} maxLength={6} inputMode="numeric" onChange={(event) => setCode(event.target.value)} />
         </label>
         <button type="button" disabled={sending} onClick={() => void sendCode()}>
-          {sending ? "发送中…" : "发送验证码"}
+          {sending ? L.sending : L.sendCode}
         </button>
       </div>
       {roles.length ? (
         <label>
-          角色
+          {L.role}
           <select value={role} onChange={(event) => setRole(event.target.value)}>
-            <option value="">默认</option>
+            <option value="">{L.roleDefault}</option>
             {roles.map((item) => (
               <option key={item.code} value={item.code}>
                 {item.name}
@@ -279,7 +283,7 @@ export function RegisterForm({
       ) : null}
       {error ? <p className="ak-error">{error}</p> : null}
       <button type="submit" disabled={busy}>
-        {busy ? "提交中…" : "注册"}
+        {busy ? L.submitting : L.register}
       </button>
     </form>
   )
@@ -287,14 +291,18 @@ export function RegisterForm({
 
 export function ResetPasswordForm({
   client,
-  language = "zh",
+  language,
+  labels,
   onSuccess,
 }: {
   client: AccountClient
   language?: string
+  labels?: DeepPartial<FormLabels> | null
   onSuccess: () => void
 }) {
   ensureAccountStyle()
+  const locale = useKitLocale(language)
+  const L = useMemo(() => resolveFormLabels(locale, labels), [locale, labels])
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
   const [password, setPassword] = useState("")
@@ -306,9 +314,9 @@ export function ResetPasswordForm({
     setError("")
     setSending(true)
     try {
-      await client.sendCode(email.trim(), "reset_password", language)
+      await client.sendCode(email.trim(), "reset_password", locale)
     } catch (err) {
-      setError(messageOf(err))
+      setError(formatError(err, L, locale))
     } finally {
       setSending(false)
     }
@@ -322,7 +330,7 @@ export function ResetPasswordForm({
       await client.resetPassword(email.trim(), code.trim(), password)
       onSuccess()
     } catch (err) {
-      setError(messageOf(err))
+      setError(formatError(err, L, locale))
     } finally {
       setBusy(false)
     }
@@ -331,25 +339,25 @@ export function ResetPasswordForm({
   return (
     <form className="ak-form" onSubmit={submit}>
       <label>
-        邮箱
+        {L.email}
         <input type="email" value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
       </label>
       <div className="ak-row">
         <label>
-          验证码
+          {L.code}
           <input value={code} maxLength={6} inputMode="numeric" onChange={(event) => setCode(event.target.value)} />
         </label>
         <button type="button" disabled={sending} onClick={() => void sendCode()}>
-          {sending ? "发送中…" : "发送验证码"}
+          {sending ? L.sending : L.sendCode}
         </button>
       </div>
       <label>
-        新密码
+        {L.newPassword}
         <input type="password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
       </label>
       {error ? <p className="ak-error">{error}</p> : null}
       <button type="submit" disabled={busy}>
-        {busy ? "提交中…" : "重置密码"}
+        {busy ? L.submitting : L.resetPassword}
       </button>
     </form>
   )
