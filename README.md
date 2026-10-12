@@ -37,15 +37,7 @@ pip install "account-kit[captcha]"
 
 ### 前端界面组件包
 
-配套的前端界面组件发布于 **GitHub Packages**。在项目根目录下配置 `.npmrc` 文件：
-
-```ini
-@kqstone:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${NPM_TOKEN}
-```
-
-- 本地安装时，`NPM_TOKEN` 需配置具备 `read:packages` 权限的 Personal Access Token (Classic PAT)。
-- 在 CI/CD（如 GitHub Actions）中，若使用默认的 `GITHUB_TOKEN`，需预先在包管理页面的 **Manage Actions access** 中为你的消费仓库授权 Read 访问权限。
+配套的前端界面组件发布在 **npmjs**（公开包），直接安装即可，不需要配置 `.npmrc` 或任何令牌。
 
 安装对应的框架包：
 
@@ -336,7 +328,7 @@ npm run typecheck
 3. GitHub Actions 自动执行：
    - 检查三处版本号与 Tag 一致性并执行完整自动化测试。
    - 通过 **PyPI Trusted Publishing**（OIDC 免密认证）将 Python 包发布到 PyPI。
-   - 使用 `GITHUB_TOKEN` 将前端组件包发布到 **GitHub Packages**。
+   - 通过 **npm Trusted Publishing**（OIDC 免密认证，带 provenance）将前端组件包发布到 npmjs。
 
 ---
 

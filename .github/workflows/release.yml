@@ -2,7 +2,7 @@ name: release
 
 # Push a tag `v<version>` (e.g. v0.1.0) to publish:
 #   - Python package `account-kit` -> PyPI (Trusted Publishing, no token)
-#   - @kqstone/account-ui-vue and @kqstone/account-ui-react -> GitHub Packages
+#   - @kqstone/account-ui-vue and @kqstone/account-ui-react -> npmjs (npm Trusted Publishing, no token)
 # The tag version must equal the version in pyproject.toml and both package.json files.
 # A manual run (workflow_dispatch) on a branch only runs the checks and builds;
 # the publish jobs run only for `v*` tag refs.
@@ -138,31 +138,26 @@ jobs:
           attestations: false
 
   publish-npm:
-    name: Publish to GitHub Packages
+    name: Publish to npmjs
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [version, python, npm]
     runs-on: ubuntu-latest
+    # Must match the environment in each package's npm trusted publisher settings.
+    environment:
+      name: npm
+      url: https://www.npmjs.com/org/kqstone
     permissions:
       contents: read
-      packages: write
+      id-token: write # npm Trusted Publishing (OIDC) + provenance; no NPM_TOKEN
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-          registry-url: https://npm.pkg.github.com
-          scope: "@kqstone"
-      # Auth uses the workflow GITHUB_TOKEN (packages: write). No NPM_TOKEN secret.
-      #
-      # To move these packages to npmjs.com later:
-      #   1. Change publishConfig.registry to the default (or remove it) and keep access: public.
-      #   2. Point setup-node registry-url at https://registry.npmjs.org (drop scope if unused).
-      #   3. Publish with NODE_AUTH_TOKEN from secrets.NPM_TOKEN, or switch to npm trusted
-      #      publishing (OIDC: npm >= 11.5.1, id-token: write; no --provenance while private).
-      #   4. Update README install / .npmrc instructions.
+          registry-url: https://registry.npmjs.org
+      - name: Upgrade npm (trusted publishing needs npm >= 11.5.1)
+        run: npm install -g npm@^11.5.1 && npm --version
       - name: Publish
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           for pkg in account-ui-vue account-ui-react; do
             (
@@ -170,10 +165,10 @@ jobs:
               npm ci
               name=$(node -p "require('./package.json').name")
               version=$(node -p "require('./package.json').version")
-              if npm view "$name@$version" version --registry=https://npm.pkg.github.com >/dev/null 2>&1; then
-                echo "$name@$version is already on GitHub Packages; skipping"
+              if npm view "$name@$version" version --registry=https://registry.npmjs.org >/dev/null 2>&1; then
+                echo "$name@$version is already on npmjs; skipping"
               else
-                npm publish --access public
+                npm publish --provenance --access public
               fi
             )
           done
