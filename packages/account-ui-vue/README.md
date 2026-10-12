@@ -7,7 +7,7 @@
 - 资料：`ProfileFields`、`AvatarUploader`、`UserAvatar`
 - 其它：`TierBadge`、`createAccountClient`
 
-安装前在项目根配置 GitHub Packages（见仓库 README 的 `.npmrc` 说明）：
+从 npmjs 直接安装：
 
 ```bash
 npm install @kqstone/account-ui-vue

@@ -265,8 +265,8 @@ examples/demo/
   TRUNCATE TABLE auth.rate_limit_counters;
   ```
 
-### 4. 本地前端引用报错提示需要 NPM_TOKEN？
-- **原因**：生产环境发布的 `@kqstone/account-ui-*` 托管于 GitHub Packages 镜像源，但演示工程中的 `package.json` 采用本地相对路径依赖：
+### 4. 本地前端需要配置 NPM_TOKEN 吗？
+- **原因**：生产环境发布的 `@kqstone/account-ui-*` 发布在 npmjs，但演示工程中的 `package.json` 采用本地相对路径依赖：
   ```json
   "@kqstone/account-ui-vue": "file:../../../packages/account-ui-vue"
   ```

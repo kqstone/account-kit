@@ -441,7 +441,7 @@ Query：`page`（≥1，默认 1）、`page_size`（1–200，默认 50）、`us
 export default { server: { port: 5173, proxy: { "/api": "http://127.0.0.1:8000" } } }
 ```
 
-界面包用本地路径，不要配 GitHub Packages token：
+界面包用本地路径（正式包在 npmjs，无需令牌）：
 
 ```json
 { "dependencies": { "@kqstone/account-ui-vue": "file:../../../packages/account-ui-vue" } }
