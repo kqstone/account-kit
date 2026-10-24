@@ -4,6 +4,7 @@
 
 - 表单：`LoginForm`、`RegisterForm`、`ResetPasswordForm`
 - 两步验证：`TwoFactorSettings`、`TwoFactorLoginDialog`
+- 微信：`WechatQrLogin`、`WechatBindSettings`（模块默认关闭；start 503 提示未配置）
 - 资料：`ProfileFields`、`AvatarUploader`、`UserAvatar`
 - 其它：`TierBadge`、`createAccountClient`
 
@@ -23,6 +24,8 @@ import {
   LoginForm,
   TwoFactorLoginDialog,
   TwoFactorSettings,
+  WechatQrLogin,
+  WechatBindSettings,
   getMfaChallenge,
   getTrustedDeviceToken,
   trustedDeviceScope,
@@ -56,7 +59,9 @@ function onSuccess(accessToken) {
     @cancel="mfa = null"
     @expired="mfa = null"
   />
+  <WechatQrLogin :client="client" device-name="web" @success="onSuccess" />
   <TwoFactorSettings v-if="token" :client="client" :token="token" />
+  <WechatBindSettings v-if="token" :client="client" :token="token" />
 </template>
 ```
 
@@ -66,6 +71,6 @@ function onSuccess(accessToken) {
 
 ## 导出
 
-`LoginForm` `RegisterForm` `ResetPasswordForm` `TwoFactorSettings` `TwoFactorLoginDialog` `AvatarUploader` `UserAvatar` `ProfileFields` `TierBadge` `createAccountClient` `accountKitI18n` `provideAccountI18n` `useAccountI18n` `followVueI18n` `formatError` `resolveLocale` `getMfaChallenge` `getTrustedDeviceToken` `saveTrustedDeviceToken` `clearTrustedDeviceToken` `clearTrustedDeviceTokensForUser` `trustedDeviceScope`
+`LoginForm` `RegisterForm` `ResetPasswordForm` `TwoFactorSettings` `TwoFactorLoginDialog` `WechatQrLogin` `WechatBindSettings` `AvatarUploader` `UserAvatar` `ProfileFields` `TierBadge` `createAccountClient` `accountKitI18n` `provideAccountI18n` `useAccountI18n` `followVueI18n` `formatError` `resolveLocale` `getMfaChallenge` `getTrustedDeviceToken` `saveTrustedDeviceToken` `clearTrustedDeviceToken` `clearTrustedDeviceTokensForUser` `trustedDeviceScope`
 
 MIT License

@@ -9,10 +9,11 @@
 
 ---
 
-## 功能列表 (0.3.0)
+## 功能列表 (0.4.0)
 
 - **核心认证**：账号密码注册与登录、邮箱验证码流转、管理员注册审批机制、单设备互踢会话模式 (`single_device`)、自定义业务角色与用户等级目录、后台管理员权限 (`is_admin`) 隔离。
 - **两步验证 (2FA / MFA)**：基于 TOTP 标准的时间戳动态口令、应急备用恢复码、受信设备免验证保持、邮箱验证码作为备用第二因素（用于免验证器登录或紧急解绑）。
+- **微信小程序码登录**：网页/App 展示小程序码，扫码确认后该端拿到与密码登录相同的主会话 token。小程序不发 JWT、无伴生会话。模块默认关闭。详见 [docs/wechat.md](docs/wechat.md)。
 - **图形验证码 (Captcha)**：连续登录失败自动触发验证码拦截，支持宿主自定义校验服务或开箱即用的内置图形验证码。
 - **防爆破与频控限流**：验证码输错上限熔断与失效锁定机制，全站验证码发信、密码重置、登录端点 IP 与用户维度的滑动窗口频控。
 - **账号与资料安全**：换绑邮箱强制新邮箱验证码验证、刷新令牌 (Refresh Token) 家族轮换与重放检测惩罚、标准注销登录端点、用户自助注销账号（支持硬删除与脱敏软删除）。
@@ -120,11 +121,12 @@ mount_account(app, get_db, config)
 | `self_delete_enabled` | `False` | 是否允许普通用户自助注销账号 |
 | `user_delete_mode` | `"hard"` | 账号删除模式：`"hard"`（物理删除）或 `"soft"`（数据脱敏软删除） |
 | `audit_log_enabled` | `True` | 是否将登录、改密、2FA 变更等敏感事件记入审计日志表 |
+| `wechat_enabled` | `False` | 是否挂载微信小程序码登录（默认关；Secret 只在服务端） |
 | `api_prefix` | `"/api/auth"` | 用户端与公共端点挂载前缀 |
 | `admin_prefix` | `"/api/admin/account"` | 管理员端点挂载前缀 |
 | `default_locale` | `"zh-CN"` | 默认与回退语言；`X-Locale` / `locale` 查询参数可改为 `en` |
 
-完整的 70+ 项配置与 `SmtpConfig` 详细说明，请参阅完整文档：[docs/configuration.md](docs/configuration.md)。国际化设计、错误码表与 UI 接入见 [docs/i18n.md](docs/i18n.md)、[docs/api.md](docs/api.md)、[docs/upgrade.md](docs/upgrade.md)。
+完整的 70+ 项配置与 `SmtpConfig` 详细说明，请参阅完整文档：[docs/configuration.md](docs/configuration.md)。微信小程序码登录见 [docs/wechat.md](docs/wechat.md)。国际化设计、错误码表与 UI 接入见 [docs/i18n.md](docs/i18n.md)、[docs/api.md](docs/api.md)、[docs/upgrade.md](docs/upgrade.md)。
 
 ---
 
@@ -164,6 +166,24 @@ mount_account(app, get_db, config)
 | `GET` | `{api_prefix}/tiers` | 获取公开的用户等级目录 | - |
 | `POST` | `{api_prefix}/role-change-requests` | 提交角色变更申请 | `role_change_enabled` |
 | `GET` | `{api_prefix}/role-change-requests/me` | 查询当前用户未决的角色申请 | `role_change_enabled` |
+
+### 微信小程序码登录
+
+需开启 `wechat_enabled=True`（默认关闭）。小程序不发 JWT。详见 [docs/wechat.md](docs/wechat.md)。
+
+| 方法 | 路径 | 说明 | 所需配置开关 |
+| :--- | :--- | :--- | :--- |
+| `POST` | `{api_prefix}/login/wechat/start` | 开小程序码 | `wechat_enabled` |
+| `GET` | `{api_prefix}/login/wechat/status` | 轮询；`confirmed` 仅第一次附带 token | `wechat_enabled` |
+| `POST` | `{api_prefix}/login/wechat/cancel` | 取消 ticket | `wechat_enabled` |
+| `POST` | `{api_prefix}/login/wechat/scan` | 小程序扫码（无 token） | `wechat_enabled` |
+| `POST` | `{api_prefix}/login/wechat/confirm` | 小程序确认（无 token） | `wechat_enabled` |
+| `POST` | `{api_prefix}/login/wechat/bind-existing` | 未绑定：绑定已有账号（可走 `/login/2fa`） | `wechat_enabled` |
+| `POST` | `{api_prefix}/login/wechat/register` | 未绑定：新建账号并绑定 | `wechat_enabled` |
+| `GET` | `{api_prefix}/wechat/status` | 当前用户绑定状态 | `wechat_enabled` |
+| `POST` | `{api_prefix}/wechat/bind/start` | 已登录用户开绑定码 | `wechat_enabled` |
+| `POST` | `{api_prefix}/wechat/bind/confirm` | 小程序确认绑定 | `wechat_enabled` |
+| `POST` | `{api_prefix}/wechat/unbind` | 解绑微信 | `wechat_enabled` |
 
 ### 两步验证 (2FA) 端点
 
@@ -217,6 +237,8 @@ mount_account(app, get_db, config)
 | `ResetPasswordForm` | 密码找回与重置表单 |
 | `TwoFactorSettings` | 2FA 管理面板（TOTP 绑定向导、二维码展示、恢复码生成、受信设备列表） |
 | `TwoFactorLoginDialog` | 登录双因素验证弹窗（支持 TOTP 动态码、恢复码与邮箱备用码） |
+| `WechatQrLogin` | 微信小程序码登录（轮询、过期刷新、未绑定 bind/register、2FA） |
+| `WechatBindSettings` | 账号安全：绑定 / 解绑微信 |
 | `ChangeEmailForm` | 换绑邮箱独立表单（向新邮箱发码、安全冷却与密码核验） |
 | `DeleteAccountForm` | 自助注销账号表单（密码确认及 2FA 第二因素校验） |
 | `ProfileFields` | 个人资料信息展示与编辑字段（支持改密邮箱验证码模式） |

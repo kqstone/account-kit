@@ -4,6 +4,7 @@
 
 - 表单：`LoginForm`、`RegisterForm`、`ResetPasswordForm`
 - 两步验证：`TwoFactorSettings`、`TwoFactorLoginDialog`
+- 微信：`WechatQrLogin`、`WechatBindSettings`（模块默认关闭；start 503 提示未配置）
 - 资料：`ProfileFields`、`AvatarUploader`、`UserAvatar`
 - 其它：`TierBadge`、`createAccountClient`
 
@@ -16,7 +17,7 @@ npm install qrcode
 ```
 
 ```tsx
-import { createAccountClient, LoginForm, TwoFactorLoginDialog, TwoFactorSettings } from "@kqstone/account-ui-react"
+import { createAccountClient, LoginForm, TwoFactorLoginDialog, TwoFactorSettings, WechatQrLogin, WechatBindSettings } from "@kqstone/account-ui-react"
 
 const client = createAccountClient("/api/auth")
 
@@ -31,6 +32,6 @@ export function Login() {
 
 ## 导出
 
-`LoginForm` `RegisterForm` `ResetPasswordForm` `TwoFactorSettings` `TwoFactorLoginDialog` `AvatarUploader` `UserAvatar` `ProfileFields` `TierBadge` `createAccountClient` `AccountKitProvider` `useAccountI18n` `followI18next` `formatError` `resolveLocale` `getMfaChallenge` `getTrustedDeviceToken` `saveTrustedDeviceToken` `clearTrustedDeviceToken` `clearTrustedDeviceTokensForUser` `trustedDeviceScope`
+`LoginForm` `RegisterForm` `ResetPasswordForm` `TwoFactorSettings` `TwoFactorLoginDialog` `WechatQrLogin` `WechatBindSettings` `AvatarUploader` `UserAvatar` `ProfileFields` `TierBadge` `createAccountClient` `AccountKitProvider` `useAccountI18n` `followI18next` `formatError` `resolveLocale` `getMfaChallenge` `getTrustedDeviceToken` `saveTrustedDeviceToken` `clearTrustedDeviceToken` `clearTrustedDeviceTokensForUser` `trustedDeviceScope`
 
 MIT License

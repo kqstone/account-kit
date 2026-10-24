@@ -14,6 +14,7 @@ export type MfaChallenge = {
   expiresIn: number
   trustedDays: number
   methods?: string[]
+  bindTicket?: string
 }
 
 export type FactorInputs = { code?: string; recoveryCode?: string; emailCode?: string }
@@ -43,6 +44,7 @@ export function getMfaChallenge(error: unknown): MfaChallenge | null {
     expiresIn: Number(detail.expires_in ?? detail.expiresIn) || 300,
     trustedDays: Number(detail.trusted_device_days ?? detail.trustedDays) || 30,
     methods: Array.isArray(detail.methods) ? (detail.methods as string[]) : undefined,
+    bindTicket: detail.bind_ticket || detail.bindTicket ? String(detail.bind_ticket || detail.bindTicket) : undefined,
   }
 }
 
@@ -57,6 +59,7 @@ export function normalizeChallenge(raw: Record<string, unknown> | MfaChallenge |
     expiresIn: Number(rec.expiresIn ?? rec.expires_in) || 300,
     trustedDays: Number(rec.trustedDays ?? rec.trusted_device_days) || 30,
     methods: Array.isArray(rec.methods) ? (rec.methods as string[]) : undefined,
+    bindTicket: rec.bindTicket || rec.bind_ticket ? String(rec.bindTicket || rec.bind_ticket) : undefined,
   }
 }
 

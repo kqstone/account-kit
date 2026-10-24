@@ -157,6 +157,33 @@ export type FormLabels = {
   errors: Record<string, string>
 }
 
+export type WechatLabels = {
+  title: string
+  hint: string
+  scanned: string
+  refresh: string
+  expired: string
+  waiting: string
+  expiresIn: string
+  notConfigured: string
+  unboundHint: string
+  bindExisting: string
+  registerTab: string
+  bound: string
+  unbound: string
+  bind: string
+  unbind: string
+  openid: string
+  unbindHint: string
+  unbindConfirm: string
+  boundOk: string
+  unboundOk: string
+  loading: string
+  error: string
+  cancel: string
+  currentPassword: string
+}
+
 const twoFactorZh: TwoFactorLabels = {
   title: "两步验证",
   description: "开启后，登录时除密码外还需输入验证器应用（如谷歌身份验证器）生成的 6 位动态码。",
@@ -501,14 +528,70 @@ const formEn: FormLabels = {
   errors: { ...defaultErrorLabels.en },
 }
 
+const wechatZh: WechatLabels = {
+  title: "微信扫码登录",
+  hint: "请使用微信扫描小程序码，在手机上确认登录。",
+  scanned: "已扫码，请在手机上确认",
+  refresh: "刷新二维码",
+  expired: "二维码已过期",
+  waiting: "等待扫码…",
+  expiresIn: "{s} 秒后过期",
+  notConfigured: "微信登录未配置",
+  unboundHint: "该微信尚未绑定账号，请在下方绑定已有账号或注册新账号。",
+  bindExisting: "绑定已有账号",
+  registerTab: "注册新账号",
+  bound: "已绑定微信",
+  unbound: "未绑定微信",
+  bind: "绑定微信",
+  unbind: "解绑微信",
+  openid: "微信标识",
+  unbindHint: "解绑需要验证当前密码；若已开启两步验证，还需第二因素。",
+  unbindConfirm: "确认解绑",
+  boundOk: "微信已绑定",
+  unboundOk: "微信已解绑",
+  loading: "加载中…",
+  error: "请求失败",
+  cancel: "取消",
+  currentPassword: "当前密码",
+}
+
+const wechatEn: WechatLabels = {
+  title: "Sign in with WeChat",
+  hint: "Scan the Mini Program code with WeChat and confirm on your phone.",
+  scanned: "Scanned. Confirm on your phone.",
+  refresh: "Refresh code",
+  expired: "Code expired",
+  waiting: "Waiting for scan…",
+  expiresIn: "Expires in {s}s",
+  notConfigured: "WeChat sign-in is not configured",
+  unboundHint: "This WeChat account is not linked. Bind an existing account or register below.",
+  bindExisting: "Bind existing account",
+  registerTab: "Create account",
+  bound: "WeChat linked",
+  unbound: "WeChat not linked",
+  bind: "Link WeChat",
+  unbind: "Unlink WeChat",
+  openid: "WeChat ID",
+  unbindHint: "Unlinking requires your current password, plus a second factor if 2FA is on.",
+  unbindConfirm: "Unlink",
+  boundOk: "WeChat linked",
+  unboundOk: "WeChat unlinked",
+  loading: "Loading…",
+  error: "Request failed",
+  cancel: "Cancel",
+  currentPassword: "Current password",
+}
+
 export const defaultTwoFactorLabels: Record<KitLocale, TwoFactorLabels> = { "zh-CN": twoFactorZh, en: twoFactorEn }
 export const defaultProfileLabels: Record<KitLocale, ProfileLabels> = { "zh-CN": profileZh, en: profileEn }
 export const defaultFormLabels: Record<KitLocale, FormLabels> = { "zh-CN": formZh, en: formEn }
+export const defaultWechatLabels: Record<KitLocale, WechatLabels> = { "zh-CN": wechatZh, en: wechatEn }
 
 export type AccountLocaleMessages = {
   forms: FormLabels
   profile: ProfileLabels
   twoFactor: TwoFactorLabels
+  wechat: WechatLabels
   errors: Record<string, string>
 }
 
@@ -523,7 +606,7 @@ function resolveSection<T extends object>(
   base: T,
   messages: AccountMessagesOverride | null | undefined,
   language: string | undefined,
-  section: "forms" | "profile" | "twoFactor",
+  section: "forms" | "profile" | "twoFactor" | "wechat",
   override?: DeepPartial<T> | null,
 ): T {
   const provider = messages?.[resolveLocale(language)]
@@ -557,4 +640,13 @@ export function resolveFormLabels(
 ): FormLabels {
   const loc = resolveLocale(language)
   return resolveSection(defaultFormLabels[loc], messages, loc, "forms", override)
+}
+
+export function resolveWechatLabels(
+  language?: string,
+  override?: DeepPartial<WechatLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): WechatLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultWechatLabels[loc], messages, loc, "wechat", override)
 }

@@ -693,3 +693,8 @@ def mount_account(app, get_db, config) -> None:
     if config.two_factor_enabled:
         app.include_router(two_factor_router, prefix=config.api_prefix)
         app.include_router(two_factor_admin, prefix=config.admin_prefix)
+    if config.wechat_enabled:
+        from account_kit.wechat.router import router as wechat_router
+
+        attach_locale_dependency(wechat_router)
+        app.include_router(wechat_router, prefix=config.api_prefix)

@@ -16,6 +16,10 @@ def _h(raw: str) -> str:
     return hashlib.sha256(("challenge:" + (raw or "")).encode("utf-8")).hexdigest()
 
 
+def challenge_token_hash(raw: str) -> str:
+    return _h(raw)
+
+
 def password_fingerprint(hashed_password: Optional[str]) -> str:
     return hashlib.sha256(("pw:" + (hashed_password or "")).encode("utf-8")).hexdigest()[:32]
 

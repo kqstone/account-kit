@@ -16,6 +16,10 @@ export type {
   TrustedDevice,
   TwoFactorSetup,
   TwoFactorStatus,
+  WechatBindExistingPayload,
+  WechatBindStatus,
+  WechatLoginStatus,
+  WechatStartResult,
 } from "./client"
 export { LoginForm, RegisterForm, ResetPasswordForm } from "./forms"
 export { AccountKitProvider, followI18next, useAccountI18n, useKitLocale } from "./i18n"
@@ -27,11 +31,13 @@ export {
   defaultFormLabels,
   defaultProfileLabels,
   defaultTwoFactorLabels,
+  defaultWechatLabels,
   resolveFormLabels,
   resolveProfileLabels,
   resolveTwoFactorLabels,
+  resolveWechatLabels,
 } from "./labels"
-export type { AccountLocaleMessages, AccountMessagesOverride, FormLabels, ProfileLabels, TwoFactorLabels } from "./labels"
+export type { AccountLocaleMessages, AccountMessagesOverride, FormLabels, ProfileLabels, TwoFactorLabels, WechatLabels } from "./labels"
 export {
   canSubmitFactor,
   FACTOR_EMAIL,
@@ -60,3 +66,4 @@ export {
   trustedDeviceScope,
 } from "./trustedDevice"
 export { TwoFactorLoginDialog, TwoFactorSettings } from "./twoFactor"
+export { WechatBindSettings, WechatQrLogin } from "./wechat"

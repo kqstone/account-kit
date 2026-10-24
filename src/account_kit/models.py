@@ -246,3 +246,59 @@ class CaptchaChallenge(Base):
     answer_hash = Column(String(64), nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     expires_at = Column(DateTime(timezone=True), nullable=False, index=True)
+
+
+# --- 0.4.0: WeChat Mini Program QR login (new tables only) -------------------
+
+
+class WechatIdentity(Base):
+    __tablename__ = "wechat_identities"
+    __table_args__ = (
+        UniqueConstraint("app_id", "openid"),
+        UniqueConstraint("user_id", "app_id"),
+        Index("ix_auth_wechat_identities_unionid", "unionid"),
+        AUTH,
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    app_id = Column(String(32), nullable=False)
+    openid = Column(String(64), nullable=False)
+    unionid = Column(String(64), nullable=True)
+    bound_at = Column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+
+class WechatLoginTicket(Base):
+    __tablename__ = "wechat_login_tickets"
+    __table_args__ = (
+        UniqueConstraint("ticket_hash"),
+        UniqueConstraint("scene"),
+        Index("ix_auth_wechat_login_tickets_expires_at", "expires_at"),
+        Index("ix_auth_wechat_login_tickets_mfa_challenge_hash", "mfa_challenge_hash"),
+        AUTH,
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ticket_hash = Column(String(64), nullable=False)
+    scene = Column(String(32), nullable=False)
+    purpose = Column(String(16), nullable=False)
+    status = Column(String(16), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, index=True)
+    openid_hash = Column(String(64), nullable=True)
+    created_ip = Column(String(64), nullable=True)
+    device_name = Column(String(128), nullable=True)
+    force = Column(Boolean, nullable=False, default=False, server_default="false")
+    token_hash = Column(String(64), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    # Fernet JSON: {openid, unionid} after scan, or one-shot token body after confirm.
+    # session_key is never stored. Plaintext openid is never stored.
+    payload_cipher = Column(Text, nullable=True)
+    mfa_challenge_hash = Column(String(64), nullable=True)
+

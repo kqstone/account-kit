@@ -1,7 +1,7 @@
 {
   "name": "@kqstone/account-ui-vue",
-  "version": "0.3.0",
-  "description": "Vue 3 login, register, 2FA, profile and avatar components for account-kit",
+  "version": "0.4.0",
+  "description": "Vue 3 login, register, 2FA, WeChat QR login, profile and avatar components for account-kit",
   "keywords": [
     "account-kit",
     "vue",

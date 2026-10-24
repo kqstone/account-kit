@@ -347,6 +347,9 @@ async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str,
     if config.session_mode == "single_device":
         _clear_session(user)
     await revoke_credentials(db, config, user.id, "password_changed")
+    from account_kit.wechat.service import invalidate_user_tickets
+
+    await invalidate_user_tickets(db, user.id)
     if config.on_password_changed is not None:
         await config.on_password_changed(db, user)
     await db.commit()
@@ -371,6 +374,9 @@ async def change_password(
     if config.session_mode == "single_device":
         _clear_session(user)
     await revoke_credentials(db, config, user.id, "password_changed")
+    from account_kit.wechat.service import invalidate_user_tickets
+
+    await invalidate_user_tickets(db, user.id)
     if config.on_password_changed is not None:
         await config.on_password_changed(db, user)
     await db.commit()
@@ -432,6 +438,9 @@ async def update_profile(
         if config.session_mode == "single_device":
             _clear_session(user)
         await revoke_credentials(db, config, user.id, "password_changed")
+        from account_kit.wechat.service import invalidate_user_tickets
+
+        await invalidate_user_tickets(db, user.id)
         if config.on_password_changed is not None:
             await config.on_password_changed(db, user)
 
@@ -509,16 +518,20 @@ async def delete_user_account(db: AsyncSession, config: AccountKitConfig, user: 
         await config.on_deleted(db, user)
     if mode == "hard":
         from account_kit.two_factor.challenges import challenge_store
+        from account_kit.wechat.service import delete_user_identities
 
         challenge_store.discard_user(user.id)
+        await delete_user_identities(db, user.id)
         await db.delete(user)
         await db.commit()
         return mode
     old_avatar = user.avatar_path
     await revoke_credentials(db, config, user.id, "deleted")
     from account_kit.two_factor.service import wipe_two_factor
+    from account_kit.wechat.service import delete_user_identities
 
     await wipe_two_factor(db, user.id)
+    await delete_user_identities(db, user.id)
     _clear_session(user)
     _tombstone(user)
     user.avatar_path = None
