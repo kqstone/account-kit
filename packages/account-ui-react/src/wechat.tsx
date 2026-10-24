@@ -64,6 +64,10 @@ export function WechatQrLogin({
   const [sending, setSending] = useState(false)
   const [busy, setBusy] = useState(false)
   const [mfa, setMfa] = useState<(MfaChallenge & { username?: string }) | null>(null)
+  const [captchaNeeded, setCaptchaNeeded] = useState(false)
+  const [captchaId, setCaptchaId] = useState("")
+  const [captchaImage, setCaptchaImage] = useState("")
+  const [captchaCode, setCaptchaCode] = useState("")
   const ticketRef = useRef("")
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -147,11 +151,30 @@ export function WechatQrLogin({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  async function loadCaptcha() {
+    setCaptchaId("")
+    setCaptchaImage("")
+    setCaptchaCode("")
+    if (typeof client.captcha !== "function") return
+    try {
+      const data = await client.captcha()
+      setCaptchaId(data.captcha_id || "")
+      setCaptchaImage(data.image_base64 ? `data:image/png;base64,${data.image_base64}` : "")
+    } catch {
+      setError(F.captchaLoadFailed)
+    }
+  }
+
   async function submitBind(event: FormEvent) {
     event.preventDefault()
     if (busy || !ticketRef.current) return
-    setBusy(true)
     setError("")
+    if (captchaNeeded && (!captchaId || !captchaCode.trim())) {
+      setError(F.captchaEnter)
+      return
+    }
+    setBusy(true)
+    const usedCaptcha = captchaNeeded
     try {
       const tokens = await client.wechatBindExisting({
         bindTicket: ticketRef.current,
@@ -159,24 +182,43 @@ export function WechatQrLogin({
         password,
         force: bindForce || force,
         deviceName,
+        captchaId: usedCaptcha ? captchaId : undefined,
+        captchaCode: usedCaptcha ? captchaCode.trim() : undefined,
       })
+      setCaptchaNeeded(false)
       onSuccess(tokens.access_token, { tokens, username })
     } catch (err) {
-      const challenge = getMfaChallenge(err)
-      if (challenge) {
-        setMfa({ ...challenge, username })
-        return
-      }
+      const body = err instanceof AccountApiError ? err.body : null
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? (body as { detail?: { code?: string; device_name?: string; captcha_required?: boolean } | string }).detail
+          : null
+      const info = detail && typeof detail === "object" ? detail : null
       const status = err instanceof AccountApiError ? err.status : 0
-      const codeName = err instanceof AccountApiError ? err.code : ""
-      if (status === 409 && codeName === "ALREADY_LOGGED_IN") {
+      const code = info?.code
+      if (usedCaptcha) setCaptchaNeeded(false)
+      if (status === 428 || code === "CAPTCHA_REQUIRED" || code === "CAPTCHA_INVALID" || info?.captcha_required) {
+        setCaptchaNeeded(true)
+        await loadCaptcha()
+        setError(
+          code === "CAPTCHA_INVALID"
+            ? F.captchaInvalid
+            : status === 428 || code === "CAPTCHA_REQUIRED"
+              ? F.captchaEnter
+              : formatError(err, F, locale),
+        )
+      } else if (status === 409 && code === "ALREADY_LOGGED_IN") {
         setBindForce(true)
         onConflict?.(err)
-        const detail = (err as AccountApiError).body as { detail?: { device_name?: string } } | null
-        setError(interpolate(F.alreadyLoggedIn, { device: detail?.detail?.device_name || F.errors.UNKNOWN_DEVICE }))
-        return
+        setError(interpolate(F.alreadyLoggedIn, { device: info?.device_name || F.errors.UNKNOWN_DEVICE }))
+      } else {
+        const challenge = getMfaChallenge(err)
+        if (challenge) {
+          setMfa({ ...challenge, username })
+          return
+        }
+        setError(formatError(err, F, locale))
       }
-      setError(formatError(err, F, locale))
     } finally {
       setBusy(false)
     }
@@ -253,6 +295,25 @@ export function WechatQrLogin({
                 {F.password}
                 <input type="password" value={password} autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
               </label>
+              {captchaNeeded ? (
+                <label className="ak-field">
+                  {F.captcha}
+                  <span className="ak-row">
+                    <input
+                      value={captchaCode}
+                      autoComplete="off"
+                      placeholder={F.captchaPlaceholder}
+                      onChange={(e) => setCaptchaCode(e.target.value)}
+                    />
+                    {captchaImage ? (
+                      <img src={captchaImage} alt="captcha" style={{ height: 36, cursor: "pointer" }} onClick={() => void loadCaptcha()} />
+                    ) : null}
+                    <button type="button" onClick={() => void loadCaptcha()}>
+                      {F.captchaRefresh}
+                    </button>
+                  </span>
+                </label>
+              ) : null}
               {error ? <p className="ak-error">{error}</p> : null}
               <button type="submit" disabled={busy}>
                 {busy ? F.loggingIn : bindForce ? F.forceLogin : L.bindExisting}

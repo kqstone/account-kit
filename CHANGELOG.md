@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+微信 bind-existing 图形验证码与普通登录对齐。
+
+- Vue / React `WechatQrLogin`「绑定已有账号」：服务端开启 captcha 时按 `LoginForm` 同样规则按需显示、点击刷新、校验失败后换图；请求携带 `captcha_id` / `captcha_code`。关闭 captcha 时不显示。
+- `POST /login/wechat/bind-existing` 的 captcha 判断、错误码（`CAPTCHA_REQUIRED` / `CAPTCHA_INVALID`）与失败计数（含管理员 `admin_login_captcha_always`、与 `/login` 共用计数器）与 `POST /login` 一致。
+
 ## 0.4.0
 
 微信小程序码登录（默认关闭）。

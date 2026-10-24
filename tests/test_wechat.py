@@ -22,7 +22,7 @@ from account_kit.schema_setup import upgrade_sql
 from account_kit.state import memory_counters
 from account_kit.two_factor.challenges import challenge_store
 from tests.conftest import _database_url
-from tests.helpers import approved_user, audit_events, bearer
+from tests.helpers import approved_user, audit_events, bearer, make_admin
 from tests.test_auth import _register
 
 PNG = b"\x89PNG\r\n\x1a\n" + b"fake-wxacode"
@@ -614,6 +614,141 @@ async def test_secret_not_in_responses_or_status(wx):
     assert "secret" not in status.text.lower()
     routes = [getattr(route, "path", "") for route in wx["app"].routes]
     assert "/api/auth/login/wechat" not in routes  # no POST /login/wechat itself
+
+
+async def _unbound_bind_ticket(client, js_code):
+    started = await _start(client)
+    scanned = await client.post(
+        "/api/auth/login/wechat/scan",
+        json={"ticket": started["scene"], "js_code": js_code},
+    )
+    assert scanned.json()["status"] == "unbound"
+    return started
+
+
+async def test_bind_existing_captcha_off_no_gate(wx):
+    await approved_user(wx, username="capoff", login=False)
+    client = wx["client"]
+    started = await _unbound_bind_ticket(client, "oid-capoff")
+    for _ in range(3):
+        res = await client.post(
+            "/api/auth/login/wechat/bind-existing",
+            json={"bind_ticket": started["ticket"], "username": "capoff", "password": "bad-pass"},
+        )
+        assert res.status_code == 401
+        assert res.json()["code"] == "INVALID_CREDENTIALS"
+        assert "captcha_required" not in str(res.json().get("detail", ""))
+    ok = await client.post(
+        "/api/auth/login/wechat/bind-existing",
+        json={"bind_ticket": started["ticket"], "username": "capoff", "password": "secret1"},
+    )
+    assert ok.status_code == 200, ok.text
+
+
+async def test_bind_existing_captcha_matches_login(wx):
+    await approved_user(wx, username="capwx", login=False)
+    checked = []
+
+    async def verify(captcha_id, captcha_code):
+        checked.append((captcha_id, captcha_code))
+        return captcha_id == "cid" and captcha_code == "ABCD"
+
+    config = wx["config"]
+    config.captcha_verifier = verify
+    config.captcha_fail_threshold = 2
+    client = wx["client"]
+    started = await _unbound_bind_ticket(client, "oid-capwx")
+
+    async def bind(password, **extra):
+        return await client.post(
+            "/api/auth/login/wechat/bind-existing",
+            json={
+                "bind_ticket": started["ticket"],
+                "username": "capwx",
+                "password": password,
+                **extra,
+            },
+        )
+
+    first = await bind("bad-pass")
+    assert first.status_code == 401
+    assert first.json()["detail"] == {
+        "code": "INVALID_CREDENTIALS",
+        "message": "用户名或密码错误",
+        "captcha_required": False,
+    }
+    second = await bind("bad-pass")
+    assert second.status_code == 401
+    assert second.json()["detail"]["captcha_required"] is True
+    need = await bind("secret1")
+    assert need.status_code == 428
+    assert need.json()["code"] == "CAPTCHA_REQUIRED"
+    assert need.json()["detail"] == {"code": "CAPTCHA_REQUIRED", "message": "需要图形验证码", "captcha_required": True}
+    wrong = await bind("secret1", captcha_id="cid", captcha_code="XXXX")
+    assert wrong.status_code == 400
+    assert wrong.json()["code"] == "CAPTCHA_INVALID"
+    assert wrong.json()["detail"]["code"] == "CAPTCHA_INVALID"
+    ok = await bind("secret1", captcha_id="cid", captcha_code="ABCD")
+    assert ok.status_code == 200, ok.text
+    assert checked[-1] == ("cid", "ABCD")
+    assert ok.json()["access_token"]
+
+
+async def test_bind_existing_captcha_shares_login_fail_counter(wx):
+    await approved_user(wx, username="capshare", login=False)
+    config = wx["config"]
+    config.captcha_verifier = lambda captcha_id, captcha_code: captcha_id == "cid" and captcha_code == "ABCD"
+    config.captcha_fail_threshold = 2
+    client = wx["client"]
+    for _ in range(2):
+        res = await client.post("/api/auth/login", data={"username": "capshare", "password": "bad-pass", "force": "true"})
+        assert res.status_code == 401
+    started = await _unbound_bind_ticket(client, "oid-capshare")
+    need = await client.post(
+        "/api/auth/login/wechat/bind-existing",
+        json={"bind_ticket": started["ticket"], "username": "capshare", "password": "secret1"},
+    )
+    assert need.status_code == 428
+    assert need.json()["code"] == "CAPTCHA_REQUIRED"
+    ok = await client.post(
+        "/api/auth/login/wechat/bind-existing",
+        json={
+            "bind_ticket": started["ticket"],
+            "username": "capshare",
+            "password": "secret1",
+            "captcha_id": "cid",
+            "captcha_code": "ABCD",
+        },
+    )
+    assert ok.status_code == 200, ok.text
+
+
+async def test_bind_existing_admin_always_captcha(wx):
+    _, headers = await make_admin(wx, username="capadmin")
+    await wx["client"].post("/api/auth/logout", headers=headers, json={"all_devices": True})
+    config = wx["config"]
+    config.captcha_verifier = lambda captcha_id, captcha_code: captcha_code == "OK"
+    config.admin_login_captcha_always = True
+    client = wx["client"]
+    started = await _unbound_bind_ticket(client, "oid-capadmin")
+    need = await client.post(
+        "/api/auth/login/wechat/bind-existing",
+        json={"bind_ticket": started["ticket"], "username": "capadmin", "password": "secret1"},
+    )
+    assert need.status_code == 428
+    assert need.json()["code"] == "CAPTCHA_REQUIRED"
+    ok = await client.post(
+        "/api/auth/login/wechat/bind-existing",
+        json={
+            "bind_ticket": started["ticket"],
+            "username": "capadmin",
+            "password": "secret1",
+            "captcha_id": "a",
+            "captcha_code": "OK",
+            "force": True,
+        },
+    )
+    assert ok.status_code == 200, ok.text
 
 
 async def test_upgrade_sql_0_4_0_idempotent():

@@ -125,11 +125,13 @@ config = AccountKitConfig(
   "device_name": "",
   "code": "",
   "recovery_code": "",
-  "email_code": ""
+  "email_code": "",
+  "captcha_id": "",
+  "captcha_code": ""
 }
 ```
 
-- 验密码，计入现有登录限流 / captcha。
+- 验密码，计入现有登录限流 / captcha。开启 captcha 时缺失/错误与 `POST /login` 相同：`428 CAPTCHA_REQUIRED`、`400 CAPTCHA_INVALID`，失败计数与 `/login` 共用。
 - 开了 2FA 且未带第二因素：返回与 `POST /login` **相同形状**的 401 `MFA_REQUIRED` challenge（`detail` 含 `challenge_token`、`methods`、`email_available`、`expires_in`），并额外带 `bind_ticket`。随后用现有 `POST /login/2fa` 提交 TOTP / 恢复码 / 邮箱码；2FA 成功后 **绑定 openid 并** `complete_login_tokens`。
 - 也可在本接口一次带上 `code` / `recovery_code` / `email_code`，跳过独立 2FA 步。
 - openid 已被他人 → 409 `WECHAT_ALREADY_BOUND`；本账号已绑其他 openid → 409 `WECHAT_BIND_EXISTS`。
