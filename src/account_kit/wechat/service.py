@@ -589,20 +589,31 @@ async def bind_existing(
     assert_usable(ticket, allow=("unbound",))
     openid, unionid = _load_openid(config, ticket)
     candidate = await get_user_by_username(db, name) if name else None
+    if candidate is not None and candidate.is_admin and config.admin_login_rate_limit_user:
+        await enforce_limit(
+            db, config, f"login:admin_user:{name.lower()}", config.admin_login_rate_limit_user, window
+        )
     await enforce_not_locked(db, config, candidate, name)
     use_captcha = captcha.captcha_enabled(config)
+    admin_always_captcha = bool(
+        use_captcha and config.admin_login_captcha_always and candidate is not None and candidate.is_admin
+    )
     if use_captcha:
-        await captcha.enforce_login_captcha(db, config, ip, name, captcha_id, captcha_code)
+        await captcha.enforce_login_captcha(
+            db, config, ip, name, captcha_id, captcha_code, force=admin_always_captcha
+        )
     from account_kit.service import _DUMMY_PASSWORD_HASH
 
     hashed = candidate.hashed_password if candidate is not None else _DUMMY_PASSWORD_HASH
     password_ok = verify_password(password, hashed)
     if not candidate or not password_ok:
-        if use_captcha:
-            raise await captcha.invalid_credentials(db, config, ip, name, {"WWW-Authenticate": "Bearer"})
         locked = await record_lockout_failure(db, config, candidate, name)
         if locked is not None:
+            if use_captcha:
+                await captcha.record_failure(db, config, ip, name)
             raise locked
+        if use_captcha:
+            raise await captcha.invalid_credentials(db, config, ip, name, {"WWW-Authenticate": "Bearer"})
         raise account_error(401, "INVALID_CREDENTIALS", headers={"WWW-Authenticate": "Bearer"})
     user = candidate
     if not user.is_active:

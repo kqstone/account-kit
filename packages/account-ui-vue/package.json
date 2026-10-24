@@ -1,6 +1,6 @@
 {
   "name": "@kqstone/account-ui-vue",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Vue 3 login, register, 2FA, WeChat QR login, profile and avatar components for account-kit",
   "keywords": [
     "account-kit",
@@ -33,6 +33,7 @@
   "sideEffects": false,
   "scripts": {
     "build": "tsup",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "prepare": "node ../../scripts/prepare-ui.mjs",
     "prepack": "npm run build"
@@ -50,8 +51,11 @@
     "qrcode": { "optional": true }
   },
   "devDependencies": {
+    "@vue/test-utils": "^2.4.6",
+    "happy-dom": "^17.4.4",
     "tsup": "^8.5.1",
     "typescript": "~5.9.3",
+    "vitest": "^3.2.4",
     "vue": "^3.5.0"
   },
   "publishConfig": {

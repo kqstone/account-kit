@@ -55,6 +55,10 @@ export const WechatQrLogin = defineComponent({
     const sending = ref(false)
     const busy = ref(false)
     const mfa = ref<(MfaChallenge & { username?: string }) | null>(null)
+    const captchaNeeded = ref(false)
+    const captchaId = ref("")
+    const captchaImage = ref("")
+    const captchaCode = ref("")
     let pollTimer: ReturnType<typeof setInterval> | null = null
     let tickTimer: ReturnType<typeof setInterval> | null = null
     let ticket = ""
@@ -134,10 +138,29 @@ export const WechatQrLogin = defineComponent({
       }
     }
 
+    async function loadCaptcha() {
+      captchaId.value = ""
+      captchaImage.value = ""
+      captchaCode.value = ""
+      if (typeof props.client.captcha !== "function") return
+      try {
+        const data = await props.client.captcha()
+        captchaId.value = data.captcha_id || ""
+        captchaImage.value = data.image_base64 ? `data:image/png;base64,${data.image_base64}` : ""
+      } catch {
+        error.value = F.value.captchaLoadFailed
+      }
+    }
+
     async function submitBind() {
       if (busy.value || !ticket) return
-      busy.value = true
       error.value = ""
+      if (captchaNeeded.value && (!captchaId.value || !captchaCode.value.trim())) {
+        error.value = F.value.captchaEnter
+        return
+      }
+      busy.value = true
+      const usedCaptcha = captchaNeeded.value
       try {
         const tokens = await props.client.wechatBindExisting({
           bindTicket: ticket,
@@ -145,22 +168,49 @@ export const WechatQrLogin = defineComponent({
           password: password.value,
           force: bindForce.value || props.force,
           deviceName: props.deviceName,
+          captchaId: usedCaptcha ? captchaId.value : undefined,
+          captchaCode: usedCaptcha ? captchaCode.value.trim() : undefined,
         })
+        captchaNeeded.value = false
         emit("success", tokens.access_token, { tokens, username: username.value })
       } catch (err) {
+        const body = err instanceof AccountApiError ? err.body : null
+        const detail =
+          body && typeof body === "object" && "detail" in body
+            ? (body as {
+                detail?: { code?: string; device_name?: string; challenge_token?: string; captcha_required?: boolean }
+              }).detail
+            : null
+        const status = err instanceof AccountApiError ? err.status : 0
+        const detailCode = detail && typeof detail === "object" ? detail.code : undefined
+        if (usedCaptcha) captchaNeeded.value = false
+        if (
+          status === 428 ||
+          detailCode === "CAPTCHA_REQUIRED" ||
+          detailCode === "CAPTCHA_INVALID" ||
+          (detail && typeof detail === "object" && detail.captcha_required)
+        ) {
+          captchaNeeded.value = true
+          await loadCaptcha()
+          error.value =
+            detailCode === "CAPTCHA_INVALID"
+              ? F.value.captchaInvalid
+              : status === 428 || detailCode === "CAPTCHA_REQUIRED"
+                ? F.value.captchaEnter
+                : formatError(err, F.value, locale.value)
+          return
+        }
         const challenge = getMfaChallenge(err)
         if (challenge) {
           mfa.value = { ...challenge, username: username.value }
           return
         }
-        const status = err instanceof AccountApiError ? err.status : 0
         const codeName = err instanceof AccountApiError ? err.code : ""
         if (status === 409 && codeName === "ALREADY_LOGGED_IN") {
           bindForce.value = true
-          const detail = (err as AccountApiError).body as { detail?: { device_name?: string } } | null
           emit("conflict", err)
           error.value = interpolate(F.value.alreadyLoggedIn, {
-            device: detail?.detail?.device_name || F.value.errors.UNKNOWN_DEVICE,
+            device: (detail && typeof detail === "object" && detail.device_name) || F.value.errors.UNKNOWN_DEVICE,
           })
           return
         }
@@ -239,6 +289,30 @@ export const WechatQrLogin = defineComponent({
             h("form", { class: "ak-form", onSubmit: (event: Event) => { event.preventDefault(); void submitBind() } }, [
               field(forms.username, h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
               field(forms.password, h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (event: Event) => { password.value = textOf(event) } })),
+              captchaNeeded.value
+                ? field(
+                    forms.captcha,
+                    h("span", { class: "ak-row" }, [
+                      h("input", {
+                        value: captchaCode.value,
+                        autocomplete: "off",
+                        placeholder: forms.captchaPlaceholder,
+                        onInput: (event: Event) => {
+                          captchaCode.value = textOf(event)
+                        },
+                      }),
+                      captchaImage.value
+                        ? h("img", {
+                            src: captchaImage.value,
+                            alt: "captcha",
+                            style: "height:36px;cursor:pointer",
+                            onClick: () => void loadCaptcha(),
+                          })
+                        : null,
+                      h("button", { type: "button", onClick: () => void loadCaptcha() }, forms.captchaRefresh),
+                    ]),
+                  )
+                : null,
               error.value ? h("p", { class: "ak-error" }, error.value) : null,
               h("button", { type: "submit", disabled: busy.value }, busy.value ? forms.loggingIn : bindForce.value ? forms.forceLogin : labels.bindExisting),
             ]),
