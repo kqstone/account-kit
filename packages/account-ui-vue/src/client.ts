@@ -115,6 +115,44 @@ export type SecondFactorPayload = {
   emailCode?: string
 }
 
+export type WechatStartResult = {
+  ticket: string
+  scene: string
+  expires_in: number
+  image_base64: string
+  mime: string
+}
+
+export type WechatLoginStatus = {
+  status: string
+  expires_in?: number
+  username?: string
+  bind_ticket?: string
+  access_token?: string
+  token_type?: string
+  refresh_token?: string
+  refresh_expires_in?: number
+}
+
+export type WechatBindStatus = {
+  bound: boolean
+  openid_masked?: string | null
+  bound_at?: string | null
+}
+
+export type WechatBindExistingPayload = {
+  bindTicket: string
+  username: string
+  password: string
+  force?: boolean
+  deviceName?: string
+  code?: string
+  recoveryCode?: string
+  emailCode?: string
+  captchaId?: string
+  captchaCode?: string
+}
+
 export class AccountApiError extends Error {
   status: number
   body: unknown
@@ -161,7 +199,18 @@ function parseBody(text: string) {
   }
 }
 
-const NO_REFRESH_PATHS = ["/login", "/login/2fa", "/refresh"]
+const NO_REFRESH_PATHS = [
+  "/login",
+  "/login/2fa",
+  "/refresh",
+  "/login/wechat/start",
+  "/login/wechat/status",
+  "/login/wechat/cancel",
+  "/login/wechat/scan",
+  "/login/wechat/confirm",
+  "/login/wechat/bind-existing",
+  "/login/wechat/register",
+]
 
 export function createAccountClient(baseUrl: string, options: AccountClientOptions = {}) {
   const prefix = baseUrl.replace(/\/$/, "")
@@ -471,6 +520,67 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
     myRoleChangeRequest(token: string) {
       return request("/role-change-requests/me", {}, token) as Promise<RoleChangeRequest | null>
     },
+    startWechatLogin(extra?: { deviceName?: string; force?: boolean }) {
+      return json(
+        "/login/wechat/start",
+        { device_name: extra?.deviceName || "", force: !!extra?.force },
+        null,
+        "POST",
+        false,
+      ) as Promise<WechatStartResult>
+    },
+    wechatLoginStatus(ticket: string) {
+      return request(
+        `/login/wechat/status?ticket=${encodeURIComponent(ticket)}`,
+        {},
+        null,
+        false,
+      ) as Promise<WechatLoginStatus>
+    },
+    cancelWechatLogin(ticket: string) {
+      return json("/login/wechat/cancel", { ticket }, null, "POST", false) as Promise<{ status: string }>
+    },
+    wechatBindExisting(payload: WechatBindExistingPayload) {
+      return json(
+        "/login/wechat/bind-existing",
+        {
+          bind_ticket: payload.bindTicket,
+          username: payload.username,
+          password: payload.password,
+          force: !!payload.force,
+          device_name: payload.deviceName || "",
+          code: payload.code || "",
+          recovery_code: payload.recoveryCode || "",
+          email_code: payload.emailCode || "",
+          captcha_id: payload.captchaId || "",
+          captcha_code: payload.captchaCode || "",
+        },
+        null,
+        "POST",
+        false,
+      ) as Promise<TokenPair>
+    },
+    wechatRegister(payload: Record<string, unknown>) {
+      return json("/login/wechat/register", payload, null, "POST", false) as Promise<AccountUser | TokenPair>
+    },
+    wechatBindStatus(token: string) {
+      return request("/wechat/status", {}, token) as Promise<WechatBindStatus>
+    },
+    startWechatBind(token: string) {
+      return json("/wechat/bind/start", {}, token) as Promise<WechatStartResult>
+    },
+    unbindWechat(token: string, payload: SecondFactorPayload) {
+      return json(
+        "/wechat/unbind",
+        {
+          password: payload.password,
+          code: payload.code || "",
+          recovery_code: payload.recoveryCode || "",
+          email_code: payload.emailCode || "",
+        },
+        token,
+      ) as Promise<{ bound: boolean }>
+    },
   }
 }
 
@@ -580,6 +690,11 @@ export function ensureAccountStyle() {
 .ak-input{width:100%}
 .ak-captcha-img{height:36px;cursor:pointer;border-radius:6px;vertical-align:middle}
 .ak-danger-zone{border:1px solid #fda29b;border-radius:10px;padding:16px}
+.ak-wechat{display:flex;flex-direction:column;gap:12px;max-width:420px;font-family:inherit;color:#101828}
+.ak-wechat-qr{width:220px;height:220px;background:#fff;padding:8px;border-radius:8px;box-sizing:border-box;display:block}
+.ak-tabs{display:flex;gap:8px;flex-wrap:wrap}
+.ak-tab{padding:6px 12px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:14px;color:#344054}
+.ak-tab-active{border-color:#1677ff;color:#1677ff;background:#eff6ff}
 `
   document.head.appendChild(style)
 }

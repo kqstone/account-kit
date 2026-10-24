@@ -37,6 +37,10 @@ ADMIN_ROLE_CHANGED = "admin_role_changed"
 ADMIN_TIER_CHANGED = "admin_tier_changed"
 ROLE_CHANGE_REVIEWED = "role_change_reviewed"
 ADMIN_PROTECTED = "admin_protected"
+WECHAT_BOUND = "wechat_bound"
+WECHAT_UNBOUND = "wechat_unbound"
+LOGIN_WECHAT = "login_wechat"
+WECHAT_REGISTER = "wechat_register"
 
 
 def request_ip(config: AccountKitConfig, request) -> str:

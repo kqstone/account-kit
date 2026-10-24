@@ -4,6 +4,50 @@
 
 ---
 
+## 升级至 0.4.0（微信小程序码登录）
+
+新增默认关闭的 wechat 模块：网页/App 展示小程序码，医生扫码确认后该端拿到与 `POST /login` 相同形状的 token。小程序 **不发 JWT**，**不占** `users.current_session_id`，**没有伴生会话**。宿主不必改 `get_current_user` 的 `sid` 规则。契约见 [wechat.md](wechat.md)。
+
+未打开 `wechat_enabled` 的宿主（例如 dental-case-pro）行为与 0.3.0 相同：不注册新路由。
+
+### 数据库
+
+新表（只加表，不加列）：`auth.wechat_identities`、`auth.wechat_login_tickets`。
+
+**用 Python（推荐，每次启动可跑）：**
+
+```python
+from account_kit import ensure_schema
+
+await ensure_schema(engine)
+```
+
+**用手写 SQL：** 在已执行 `upgrade_0_2_3.sql` 的库上再跑包内
+
+`account_kit/sql/upgrade_0_4_0.sql`
+
+（`account_kit.schema_setup.upgrade_sql("0.4.0")` 可读到同一份。幂等。）
+
+### 宿主迁移
+
+1. pin `account-kit[captcha]==0.4.0` 与 `@kqstone/account-ui-vue`（或 react）同版本。
+2. 需要扫码登录的宿主：`wechat_enabled=True`，AppID/Secret 来自环境变量，**不要**写进前端或 GET 配置接口。联调 `wechat_env_version=trial`（或 `develop`）且 `wechat_check_path=False`；生产 `release` + `check_path=True`。
+3. 登录页挂 `WechatQrLogin`；账号安全挂 `WechatBindSettings`。
+4. 原生小程序只做 `pages/login/confirm`，不进 kit。
+5. 保持关闭：不设 `wechat_enabled` 即可。
+
+### 行为说明
+
+| 变化 | 兼容性 |
+|---|---|
+| 新路由仅 `wechat_enabled=True` 时挂载 | 兼容：默认关 |
+| 登录成功复用 `complete_login_tokens`（主会话） | 兼容：409 / `force` / `SESSION_REPLACED` 与密码登录相同 |
+| bind-existing 开了 2FA 时返回与 `/login` 同形的 401 `MFA_REQUIRED`，`detail` 额外带 `bind_ticket`；用现有 `POST /login/2fa` 完成后绑定 | 扩展 |
+| 改密作废未消费 wechat ticket，保留绑定；删用户级联删 identity | 兼容扩展 |
+| `wechat_app_secret` 不出现在任何 GET 配置接口；`session_key` 不落库 | — |
+
+---
+
 ## 升级至 0.3.0（国际化）
 
 无数据库迁移。默认语言改为纯中文 `zh-CN`；新增顶层错误 `code`。原先按英文或旧中文句子匹配的宿主必须改成按 `code` 匹配。

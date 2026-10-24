@@ -53,7 +53,8 @@ async def ensure_schema(engine: AsyncEngine) -> None:
     """Idempotent upgrade helper for hosts without Alembic: creates the schema,
     any missing kit tables, and the single-admin unique index (skipped with a
     warning if more than one admin already exists). Safe to run on every start.
-    Equivalent SQL: account_kit/sql/upgrade_0_2_2.sql then upgrade_0_2_3.sql."""
+    Equivalent SQL: account_kit/sql/upgrade_0_2_2.sql, upgrade_0_2_3.sql,
+    then upgrade_0_4_0.sql."""
     await init_db(engine)
 
 
@@ -65,7 +66,7 @@ def ensure_schema_sync(engine) -> None:
         _ensure_single_admin_index_sync(conn)
 
 
-def upgrade_sql(version: str = "0.2.3") -> str:
+def upgrade_sql(version: str = "0.4.0") -> str:
     """Idempotent upgrade SQL shipped with the package (for host migrations)."""
     import os
 

@@ -133,7 +133,7 @@ from account_kit.config import AccountKitConfig, SmtpConfig
 | `before_register` | `Optional[BeforeRegister]` | `None` | 用户注册前异步钩子 `async fn(request)` |
 | `before_two_factor` | `Optional[BeforeTwoFactor]` | `None` | 执行 2FA 校验或发信前异步钩子 `async fn(request, user)` |
 | `before_send_code` | `Optional[BeforeSendCode]` | `None` | 发送任意验证码邮件前的异步钩子 `async fn(request, email, purpose)`，抛出 HTTPException 可拒绝 |
-| `before_action` | `Optional[BeforeAction]` | `None` | 执行敏感操作前的统一异步钩子 `async fn(request, action, info)` |
+| `before_action` | `Optional[BeforeAction]` | `None` | 执行敏感操作前的统一异步钩子 `async fn(request, action, info)`。`action` 含 `send_code`、`register`、`wechat_start`、`wechat_confirm`、`wechat_bind`、`wechat_unbind`、`wechat_register` 等 |
 | `on_registered` | `Optional[UserHook]` | `None` | 用户注册成功后的异步回调 `async fn(db, user)` |
 | `on_login` | `Optional[UserHook]` | `None` | 用户登录成功后的异步回调 `async fn(db, user)` |
 | `on_password_changed` | `Optional[UserHook]` | `None` | 密码修改成功后的异步回调 `async fn(db, user)` |
@@ -245,3 +245,27 @@ await ensure_admin(session, "ops", "ops@example.com", password)
 解析顺序：`locale_resolver` → 请求头 → 查询参数 →（可选）`Accept-Language` → `default_locale`。`zh*` → `zh-CN`，`en*` → `en`，其它回落默认语言。
 
 宿主 `mailer(to, purpose, code, language)` 的 `language` 仍是 `"zh"` / `"en"`。
+
+---
+
+## 微信小程序码登录（0.4.0）
+
+全部可选，**默认关闭**。`wechat_enabled=False` 时不注册路由。`wechat_app_secret` 只在服务端；不要进任何 GET 配置接口或前端。完整契约、联调参数与小程序确认页示例见 [wechat.md](wechat.md)。
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `wechat_enabled` | `bool` | `False` | 为真才挂 `/login/wechat/*` 与 `/wechat/*` |
+| `wechat_app_id` | `str` | `""` | 小程序 AppID |
+| `wechat_app_secret` | `str` | `""` | 服务端密钥 |
+| `wechat_qr_ttl_seconds` | `int` | `120` | ticket 有效期（秒）；过期后前端再 start |
+| `wechat_qr_page` | `str` | `"pages/login/confirm"` | `getwxacodeunlimit` 的 `page` |
+| `wechat_bind_page` | `str` | `"pages/login/confirm"` | 设置页绑定码页面 |
+| `wechat_env_version` | `str` | `"release"` | `release` / `trial` / `develop` |
+| `wechat_check_path` | `bool` | `True` | 未发布必须 `False`，否则微信 41030 |
+| `wechat_login_rate_limit_ip` | `int` | `20` | start / scan / confirm / bind 的 IP 限流 |
+| `wechat_satisfies_mfa` | `bool` | `True` | 已绑定扫码确认视为已过第二因素 |
+| `wechat_allow_register` | `bool` | `True` | 未绑定扫码后允许网页新建账号 |
+| `wechat_code2session` | `Optional[Callable]` | `None` | 测试注入：`js_code -> {openid, unionid?}` |
+| `wechat_get_wxacode` | `Optional[Callable]` | `None` | 测试注入，返回 PNG/JPEG bytes |
+
+联调：`wechat_env_version="trial"`（或 `"develop"`）且 `wechat_check_path=False`。生产：`release` + `check_path=True`。未配 AppID/Secret 且未注入 callable → start 503 `WECHAT_NOT_CONFIGURED`。

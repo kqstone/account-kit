@@ -264,27 +264,44 @@ async def login_second_factor(
             raise account_error(exc.status_code, code, extra=extra, as_dict=True) from exc
         item.passed = True
         await save_challenge(db, config, challenge_token, item)
-    _user, body = await complete_login_tokens(
-        db,
-        config,
-        user,
-        force=force,
-        device_name=device_name or item.device_name,
-        ip=request_ip(config, request),
-    )
+    wechat_body = None
+    if config.wechat_enabled:
+        from account_kit.wechat.service import complete_pending_wechat_bind
+
+        wechat_body = await complete_pending_wechat_bind(
+            db,
+            config,
+            user,
+            challenge_token,
+            force=force,
+            device_name=device_name or item.device_name,
+            ip=request_ip(config, request),
+            request=request,
+        )
+    if wechat_body is not None:
+        body = wechat_body
+    else:
+        _user, body = await complete_login_tokens(
+            db,
+            config,
+            user,
+            force=force,
+            device_name=device_name or item.device_name,
+            ip=request_ip(config, request),
+        )
+        meta = {"two_factor_method": item.method}
+        if config.audit_admin_login:
+            meta["is_admin"] = bool(user.is_admin)
+        await audit(
+            db,
+            config,
+            audit_mod.LOGIN_SUCCESS,
+            user_id=user.id,
+            request=request,
+            device_name=device_name or item.device_name,
+            meta=meta,
+        )
     await discard_challenge(db, config, challenge_token)
-    meta = {"two_factor_method": item.method}
-    if config.audit_admin_login:
-        meta["is_admin"] = bool(user.is_admin)
-    await audit(
-        db,
-        config,
-        audit_mod.LOGIN_SUCCESS,
-        user_id=user.id,
-        request=request,
-        device_name=device_name or item.device_name,
-        meta=meta,
-    )
     body = {**body, "two_factor_method": item.method}
     if trust_device:
         raw, expires = await issue_trusted_device(db, config, user.id, device_name or item.device_name)

@@ -42,8 +42,13 @@ EmailTemplateMap = Dict[str, str]
 BeforeSendCode = Callable[[object, str, str], Awaitable[None]]
 # request, action, info: generic hook before sensitive kit actions. ``action`` is one
 # of send_code, verify_code, register, reset_password, change_password, change_email,
-# refresh, logout, delete_account, captcha. ``info`` is a small dict (email, purpose, user).
+# refresh, logout, delete_account, captcha, wechat_start, wechat_confirm, wechat_bind,
+# wechat_unbind, wechat_register. ``info`` is a small dict (email, purpose, user).
 BeforeAction = Callable[[object, str, Dict[str, Any]], Awaitable[None]]
+# js_code -> {openid, unionid?}. session_key must be dropped by the callable.
+WechatCode2Session = Callable[[str], Union[Dict[str, Any], Awaitable[Dict[str, Any]]]]
+# scene, page, env_version, check_path, width -> PNG/JPEG bytes
+WechatGetWxaCode = Callable[..., Union[bytes, Awaitable[bytes]]]
 # db, event, user_id, meta: called after each audit row is written (or instead, when
 # ``audit_log_enabled`` is False). Never raises into the request.
 AuditHook = Callable[..., Awaitable[None]]
@@ -200,6 +205,23 @@ class AccountKitConfig:
     # locale -> code -> text, deep-merged over the built-in catalog.
     messages_override: Optional[Dict[str, Dict[str, str]]] = None
     localize_validation: bool = False
+
+    # --- wechat Mini Program QR login (0.4.0) ---------------------------------
+    # Off by default. Routes are registered only when ``wechat_enabled`` is True.
+    wechat_enabled: bool = False
+    wechat_app_id: str = ""
+    # Server-side only. Never returned by any GET endpoint.
+    wechat_app_secret: str = ""
+    wechat_qr_ttl_seconds: int = 120
+    wechat_qr_page: str = "pages/login/confirm"
+    wechat_bind_page: str = "pages/login/confirm"
+    wechat_env_version: str = "release"
+    wechat_check_path: bool = True
+    wechat_login_rate_limit_ip: int = 20
+    wechat_satisfies_mfa: bool = True
+    wechat_allow_register: bool = True
+    wechat_code2session: Optional[WechatCode2Session] = None
+    wechat_get_wxacode: Optional[WechatGetWxaCode] = None
 
     def challenge_ttl(self) -> int:
         return max(30, int(self.two_factor_challenge_ttl_seconds or 300))

@@ -134,6 +134,17 @@ _ZH_CN: Dict[str, str] = {
     "EMAIL_SUBJECT_login_2fa": "【{brand}】登录验证码",
     "EMAIL_SUBJECT_disable_2fa": "【{brand}】关闭两步验证验证码",
     "EMAIL_SUBJECT_generic": "【{brand}】验证码",
+    # --- wechat --------------------------------------------------------------
+    "WECHAT_NOT_CONFIGURED": "微信登录未配置",
+    "WECHAT_QR_FAILED": "小程序码生成失败，请稍后重试",
+    "WECHAT_CODE_INVALID": "微信登录凭证无效或已过期",
+    "WECHAT_NOT_BOUND": "该微信尚未绑定账号",
+    "WECHAT_ALREADY_BOUND": "该微信已绑定其他账号",
+    "WECHAT_BIND_EXISTS": "该账号已绑定其他微信",
+    "WECHAT_TICKET_INVALID": "登录码无效",
+    "WECHAT_TICKET_EXPIRED": "登录码已过期，请刷新后重试",
+    "WECHAT_TICKET_CONSUMED": "登录码已使用",
+    "WECHAT_REGISTER_DISABLED": "未绑定微信时不允许新建账号",
 }
 
 _EN: Dict[str, str] = {
@@ -250,6 +261,16 @@ _EN: Dict[str, str] = {
     "EMAIL_SUBJECT_login_2fa": "[{brand}] Your sign-in verification code",
     "EMAIL_SUBJECT_disable_2fa": "[{brand}] Code to turn off two-step verification",
     "EMAIL_SUBJECT_generic": "[{brand}] Verification code",
+    "WECHAT_NOT_CONFIGURED": "WeChat sign-in is not configured",
+    "WECHAT_QR_FAILED": "Could not create the Mini Program code, please try again",
+    "WECHAT_CODE_INVALID": "WeChat login code is invalid or expired",
+    "WECHAT_NOT_BOUND": "This WeChat account is not linked",
+    "WECHAT_ALREADY_BOUND": "This WeChat account is already linked to another user",
+    "WECHAT_BIND_EXISTS": "This account is already linked to another WeChat account",
+    "WECHAT_TICKET_INVALID": "Login code is invalid",
+    "WECHAT_TICKET_EXPIRED": "Login code expired, please refresh and try again",
+    "WECHAT_TICKET_CONSUMED": "Login code has already been used",
+    "WECHAT_REGISTER_DISABLED": "Creating an account from WeChat is disabled",
 }
 
 MESSAGES: Dict[str, Dict[str, str]] = {

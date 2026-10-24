@@ -18,6 +18,7 @@
 6. [角色与等级查询](#6-角色与等级查询)
 7. [管理员后台端点](#7-管理员后台端点)
 8. [通用错误响应与业务错误码](#8-通用错误响应与业务错误码)
+9. [微信小程序码登录](#9-微信小程序码登录)
 
 ---
 
@@ -51,7 +52,7 @@
   - `400 Bad Request`: 图形验证码错误或已失效。`detail={"code": "CAPTCHA_INVALID", "message": "图形验证码错误或已失效", "captcha_required": true}`。
   - `403 Forbidden`: 账号已停用（「账号已被停用」）或注册未审批（「账号尚未通过审批」）。
   - `409 Conflict`: 单设备模式下已在其他设备登录。`detail={"code": "ALREADY_LOGGED_IN", "message": "该账号已在其他设备登录", "device_name": "..."}`。
-  - `401 Unauthorized (MFA)`: 账号已开启两步验证。`detail={"code": "MFA_REQUIRED", "message": "该账号已开启两步验证，请升级客户端", "challenge_token": "...", "email_available": bool, "methods": ["totp", "recovery", "email"]}`。
+  - `401 Unauthorized (MFA)`: 账号已开启两步验证。`detail={"code": "MFA_REQUIRED", "message": "该账号已开启两步验证，请升级客户端", "challenge_token": "...", "email_available": bool, "methods": ["totp", "recovery", "email"]}`。微信 bind-existing 的 challenge 同形，并额外带 `bind_ticket`。
 
 ---
 
@@ -445,7 +446,7 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `EMAIL_UNAVAILABLE` | 400 | dict | | 邮箱验证不可用 | Email verification is not available |
 | `CODE_INVALID` | 400 | string | | 验证码错误或已失效 | The code is wrong or expired |
 | `CODE_LOCKED` | 400 | string | | 验证码错误次数过多，请重新获取验证码 | Too many wrong codes, please request a new one |
-| `MFA_REQUIRED` | 401 | dict | `challenge_token`, `email_available`, `methods` | 该账号已开启两步验证，请升级客户端 | This account has two-factor authentication; please upgrade your client |
+| `MFA_REQUIRED` | 401 | dict | `challenge_token`, `email_available`, `methods`；bind-existing 另含 `bind_ticket` | 该账号已开启两步验证，请升级客户端 | This account has two-factor authentication; please upgrade your client |
 | `MFA_CHALLENGE_INVALID` | 401 | dict | | 登录验证已过期，请重新输入密码登录 | Sign-in verification expired, please enter your password again |
 | `MFA_CODE_REQUIRED` | 400 | dict | 注销路径文案「请输入两步验证码」 | 请输入验证码 | Please enter the code |
 | `MFA_CODE_INVALID` | 400 | dict | `attempts_left`；恢复码文案「恢复码错误」 | 验证码错误 | Incorrect code |
@@ -497,5 +498,39 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `AVATAR_EMPTY` | 400 | string | | 请选择头像图片 | Please choose an avatar image |
 | `AVATAR_TOO_LARGE` | 400 | string | | 头像不能超过 2MB | Avatar must not exceed 2MB |
 | `VALIDATION_ERROR` | 422 | list | 仅 `localize_validation=True` 时顶层带 `code` | 请求参数无效 | Invalid request |
+| `WECHAT_NOT_CONFIGURED` | 503 | string | 未配 AppID/Secret 且未注入 callable | 微信登录未配置 | WeChat sign-in is not configured |
+| `WECHAT_QR_FAILED` | 502 | string | | 小程序码生成失败，请稍后重试 | Could not create the Mini Program code, please try again |
+| `WECHAT_CODE_INVALID` | 401 | string | | 微信登录凭证无效或已过期 | WeChat login code is invalid or expired |
+| `WECHAT_NOT_BOUND` | 401 | string | | 该微信尚未绑定账号 | This WeChat account is not linked |
+| `WECHAT_ALREADY_BOUND` | 409 | string | | 该微信已绑定其他账号 | This WeChat account is already linked to another user |
+| `WECHAT_BIND_EXISTS` | 409 | string | | 该账号已绑定其他微信 | This account is already linked to another WeChat account |
+| `WECHAT_TICKET_INVALID` | 400 | string | | 登录码无效 | Login code is invalid |
+| `WECHAT_TICKET_EXPIRED` | 400 | string | | 登录码已过期，请刷新后重试 | Login code expired, please refresh and try again |
+| `WECHAT_TICKET_CONSUMED` | 400 | string | | 登录码已使用 | Login code has already been used |
+| `WECHAT_REGISTER_DISABLED` | 403 | string | `wechat_allow_register=False` | 未绑定微信时不允许新建账号 | Creating an account from WeChat is disabled |
 
 成功 `StatusResponse.detail`：`CODE_SENT`「验证码已发送」、`CODE_VALID`「验证码有效」、`PASSWORD_RESET_OK`「密码重置成功」、`PASSWORD_CHANGED_OK`「密码修改成功」。邮件主题/动作见目录 `EMAIL_SUBJECT_*` / `EMAIL_ACTION_*`。
+
+---
+
+## 9. 微信小程序码登录
+
+仅当 `wechat_enabled=True` 时挂载。完整契约、配置、2FA 与小程序确认页示例见 [wechat.md](wechat.md)。
+
+**没有** `POST /login/wechat`。小程序路径从不返回 JWT。`session_key` 不落库。`wechat_app_secret` 不出现在任何 GET 响应。
+
+| 方法 | 路径 | 说明 |
+| :--- | :--- | :--- |
+| `POST` | `{api_prefix}/login/wechat/start` | 匿名开码。200 `{ticket, scene, expires_in, image_base64, mime}` |
+| `GET` | `{api_prefix}/login/wechat/status` | 轮询。`confirmed` **仅第一次**附带 token |
+| `POST` | `{api_prefix}/login/wechat/cancel` | 取消 ticket，幂等 |
+| `POST` | `{api_prefix}/login/wechat/scan` | 小程序扫码。`{ticket, js_code}`。已绑定 `scanned`+`username`；未绑定 `unbound`。无 token |
+| `POST` | `{api_prefix}/login/wechat/confirm` | 小程序确认。成功 `{status:"ok"}`；409 与 `/login` 相同，ticket 保持 `scanned` |
+| `POST` | `{api_prefix}/login/wechat/bind-existing` | 网页绑定已有账号。开了 2FA 且未带第二因素 → 401 `MFA_REQUIRED`（同 `/login`，`detail` 另含 `bind_ticket`），完成后走现有 `POST /login/2fa`。也可一次带 `code`/`recovery_code`/`email_code`。成功直接返回 TokenResponse |
+| `POST` | `{api_prefix}/login/wechat/register` | 网页新建账号并绑定。`require_approval` 时无 token |
+| `GET` | `{api_prefix}/wechat/status` | 已登录。`{bound, openid_masked, bound_at}` |
+| `POST` | `{api_prefix}/wechat/bind/start` | 已登录，开 purpose=`bind` 的码 |
+| `POST` | `{api_prefix}/wechat/bind/confirm` | 小程序确认绑定。`{ticket, js_code}`。无 JWT |
+| `POST` | `{api_prefix}/wechat/unbind` | 已登录。密码 +（若开了）第二因素 |
+
+网页用 opaque `ticket` 轮询；小程序把 `scene` 放进同一字段 `ticket`。
