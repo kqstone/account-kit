@@ -234,6 +234,12 @@ async def account_error_handler(_request: Request, exc: AccountError) -> JSONRes
     body: Dict[str, Any] = {"detail": exc.detail, "code": exc.kit_code}
     if exc.kit_params:
         body["params"] = exc.kit_params
+    oauth_error = exc.kit_extra.get("error")
+    if oauth_error:
+        body["error"] = oauth_error
+        description = exc.kit_extra.get("error_description")
+        if description:
+            body["error_description"] = description
     return JSONResponse(status_code=exc.status_code, content=body, headers=dict(exc.headers) if exc.headers else None)
 
 

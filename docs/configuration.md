@@ -269,3 +269,29 @@ await ensure_admin(session, "ops", "ops@example.com", password)
 | `wechat_get_wxacode` | `Optional[Callable]` | `None` | 测试注入，返回 PNG/JPEG bytes |
 
 联调：`wechat_env_version="trial"`（或 `"develop"`）且 `wechat_check_path=False`。生产：`release` + `check_path=True`。未配 AppID/Secret 且未注入 callable → start 503 `WECHAT_NOT_CONFIGURED`。
+
+`wechat_enabled=False` 时改密 / 重置 / 删用户**不会**访问 `auth.wechat_*`，Alembic 宿主可不建这两张表。
+
+---
+
+## OIDC IdP（0.5.0）
+
+全部可选，**默认关闭**。`sso_idp_enabled=False` 时不注册路由。client_secret 与签名私钥只在服务端；不要进任何 GET 配置接口或前端。完整契约见 [sso.md](sso.md)。
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `sso_idp_enabled` | `bool` | `False` | 为真才挂发现文档与 `/oauth/*` |
+| `sso_issuer` | `str` | `""` | 例 `https://gingiva.top:8443`；生产必须 https |
+| `sso_jwt_algorithm` | `str` | `"RS256"` | `RS256`（PEM）或 `HS256`（client_secret）。不回落 `jwt_secret` |
+| `sso_signing_key_pem` | `str` | `""` | RS256 私钥 PEM |
+| `sso_signing_kid` | `str` | `"sso-1"` | JWKS `kid` |
+| `sso_clients` | `Tuple[SsoClientConfig, ...]` | `()` | `client_id` / `client_secret` / `redirect_uris` / `name`。`SsoClientConfig.from_env(prefix)` |
+| `sso_code_ttl_seconds` | `int` | `60` | 授权码 TTL |
+| `sso_id_token_ttl_seconds` | `int` | `300` | id_token 与 SSO access_token TTL |
+| `sso_require_pkce` | `bool` | `True` | 只接受 S256 |
+| `sso_mount_well_known_root` | `bool` | `True` | 挂 `/.well-known/*` |
+| `sso_token_rate_limit_ip` | `int` | `30` | token 端点 IP 限流 |
+| `sso_token_rate_limit_client` | `int` | `30` | token 端点 client 限流 |
+| `sso_allow_http_issuer` | `bool` | `False` | 测试放行 http issuer |
+
+`before_action` 新增：`sso_authorize` `sso_token` `sso_userinfo`。未配齐 → 503 `SSO_NOT_CONFIGURED`。挂载后把开关设为 False → 403 `SSO_DISABLED`。

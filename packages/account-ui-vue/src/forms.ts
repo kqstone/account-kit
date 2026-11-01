@@ -13,10 +13,15 @@ export const LoginForm = defineComponent({
   props: {
     client: { type: Object as PropType<AccountClient>, required: true },
     deviceName: { type: String, default: "" },
+    defaultUsername: { type: String, default: "" },
+    defaultPassword: { type: String, default: "" },
     initialUsername: { type: String, default: "" },
     initialPassword: { type: String, default: "" },
     trustedDeviceToken: { type: [String, Function] as PropType<string | ((username: string) => string)>, default: "" },
-    beforeSubmit: { type: Function as PropType<() => boolean | Promise<boolean | void>>, default: null },
+    beforeSubmit: {
+      type: Function as PropType<(payload: { username: string; password: string }) => boolean | void | Promise<boolean | void>>,
+      default: null,
+    },
     language: { type: String, default: undefined },
     labels: { type: Object as PropType<DeepPartial<FormLabels>>, default: null },
   },
@@ -26,8 +31,8 @@ export const LoginForm = defineComponent({
     const locale = useKitLocale(() => props.language)
     const { messages } = useAccountI18n()
     const L = computed(() => resolveFormLabels(locale.value, props.labels, messages))
-    const username = ref(props.initialUsername || "")
-    const password = ref(props.initialPassword || "")
+    const username = ref(props.defaultUsername || props.initialUsername || "")
+    const password = ref(props.defaultPassword || props.initialPassword || "")
     const error = ref("")
     const busy = ref(false)
     const force = ref(false)
@@ -60,7 +65,7 @@ export const LoginForm = defineComponent({
       const usedCaptcha = captchaNeeded.value
       try {
         if (props.beforeSubmit) {
-          const ok = await props.beforeSubmit()
+          const ok = await props.beforeSubmit({ username: username.value, password: password.value })
           if (ok === false) return
         }
         const name = username.value.trim()
@@ -133,6 +138,7 @@ export const LoginForm = defineComponent({
           field(
             L.value.username,
             h("input", {
+              name: "username",
               value: username.value,
               autocomplete: "username",
               onInput: (event: Event) => {
@@ -143,6 +149,7 @@ export const LoginForm = defineComponent({
           field(
             L.value.password,
             h("input", {
+              name: "password",
               type: "password",
               value: password.value,
               autocomplete: "current-password",

@@ -698,3 +698,14 @@ def mount_account(app, get_db, config) -> None:
 
         attach_locale_dependency(wechat_router)
         app.include_router(wechat_router, prefix=config.api_prefix)
+    if config.sso_idp_enabled:
+        from account_kit.sso.router import router as sso_router
+        from account_kit.sso.router import well_known_router
+        from account_kit.sso.service import validate_sso_issuer
+
+        validate_sso_issuer(config)
+        attach_locale_dependency(sso_router)
+        app.include_router(sso_router, prefix=config.api_prefix)
+        if config.sso_mount_well_known_root:
+            attach_locale_dependency(well_known_router)
+            app.include_router(well_known_router)

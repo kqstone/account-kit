@@ -19,6 +19,7 @@
 7. [管理员后台端点](#7-管理员后台端点)
 8. [通用错误响应与业务错误码](#8-通用错误响应与业务错误码)
 9. [微信小程序码登录](#9-微信小程序码登录)
+10. [OIDC Identity Provider](#10-oidc-identity-provider)
 
 ---
 
@@ -508,6 +509,19 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `WECHAT_TICKET_EXPIRED` | 400 | string | | 登录码已过期，请刷新后重试 | Login code expired, please refresh and try again |
 | `WECHAT_TICKET_CONSUMED` | 400 | string | | 登录码已使用 | Login code has already been used |
 | `WECHAT_REGISTER_DISABLED` | 403 | string | `wechat_allow_register=False` | 未绑定微信时不允许新建账号 | Creating an account from WeChat is disabled |
+| `SSO_DISABLED` | 403 | dict | 顶层 `error=access_denied` | 单点登录未开启 | Single sign-on is disabled |
+| `SSO_NOT_CONFIGURED` | 503 | dict | 顶层 `error=server_error` | 单点登录未配置 | Single sign-on is not configured |
+| `SSO_INVALID_CLIENT` | 401 | dict | `error=invalid_client`；`WWW-Authenticate` | 客户端无效 | Invalid client |
+| `SSO_INVALID_REDIRECT` | 400 | dict | `error=invalid_request` | 回调地址不在白名单 | Redirect URI is not allowed |
+| `SSO_PKCE_INVALID` | 400 | dict | `error=invalid_grant` | PKCE 校验失败 | PKCE verification failed |
+| `SSO_CODE_INVALID` | 400 | dict | `error=invalid_grant` | 授权码无效或已使用 | Authorization code is invalid or already used |
+| `SSO_CODE_EXPIRED` | 400 | dict | `error=invalid_grant` | 授权码已过期 | Authorization code has expired |
+| `SSO_ADMIN_FORBIDDEN` | 403 | dict | `error=access_denied` | 管理员账号不能使用单点登录 | Admin accounts cannot use single sign-on |
+| `SSO_EMAIL_REQUIRED` | 403 | dict | `error=access_denied` | 未绑定邮箱的账号不能使用单点登录 | Accounts without an email cannot use single sign-on |
+| `SSO_UNSUPPORTED_GRANT` | 400 | dict | `error=unsupported_grant_type` | 不支持的授权类型 | Unsupported grant type |
+| `SSO_INVALID_SCOPE` | 400 | dict | `error=invalid_scope` | 权限范围无效 | Invalid scope |
+| `SSO_STATE_REQUIRED` | 400 | dict | `error=invalid_request` | 缺少 state 参数 | The state parameter is required |
+| `SSO_INVALID_REQUEST` | 400 | dict | `error=invalid_request` | 请求无效 | Invalid request |
 
 成功 `StatusResponse.detail`：`CODE_SENT`「验证码已发送」、`CODE_VALID`「验证码有效」、`PASSWORD_RESET_OK`「密码重置成功」、`PASSWORD_CHANGED_OK`「密码修改成功」。邮件主题/动作见目录 `EMAIL_SUBJECT_*` / `EMAIL_ACTION_*`。
 
@@ -534,3 +548,22 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `POST` | `{api_prefix}/wechat/unbind` | 已登录。密码 +（若开了）第二因素 |
 
 网页用 opaque `ticket` 轮询；小程序把 `scene` 放进同一字段 `ticket`。
+
+---
+
+## 10. OIDC Identity Provider
+
+仅当 `sso_idp_enabled=True` 时挂载。完整契约、签名与 RP 辅助见 [sso.md](sso.md)。
+
+未挂载 → 404。挂载后热关 → 403 `SSO_DISABLED`。密钥不出现在任何 GET 响应。authorize 是 POST + kit Bearer（宿主确认页），不是浏览器 Cookie GET。
+
+| 方法 | 路径 | 说明 |
+| :--- | :--- | :--- |
+| `GET` | `/.well-known/openid-configuration` | 发现文档。issuer 示例 `https://gingiva.top:8443` |
+| `GET` | `/.well-known/jwks.json` | RS256 公钥 + `kid`；HS256 为 `{"keys":[]}` |
+| `GET` | `{api_prefix}/.well-known/openid-configuration` | 同上 |
+| `POST` | `{api_prefix}/oauth/authorize` | JSON。已登录。200 `{code, state, redirect_uri, expires_in}` |
+| `POST` | `{api_prefix}/oauth/token` | 仅 form。`Cache-Control: no-store`。200 `{access_token, id_token, token_type, expires_in, scope}` |
+| `GET` | `{api_prefix}/oauth/userinfo` | SSO access_token。`sub` + `email` / `email_verified` / `name` / `preferred_username` / `username` |
+
+OAuth 错误另有顶层 `error` 与 `error_description`。

@@ -2,7 +2,7 @@
 
 网页 / 桌面 / App 展示微信小程序码；医生用微信扫码，在小程序确认后，**该端**拿到与 `POST /login` 相同形状的 token。小程序只用 `wx.login` 换 openid，**不发 JWT、不保持医生登录态、不占 `users.current_session_id`**。没有伴生会话，不必改宿主 `get_current_user` 的 `sid` 规则。
 
-模块默认关闭。`wechat_enabled=False` 时不注册任何 `/login/wechat/*` 或 `/wechat/*` 路由，其它 0.3.0 行为不变。
+模块默认关闭。`wechat_enabled=False` 时不注册任何 `/login/wechat/*` 或 `/wechat/*` 路由，改密 / 重置 / 删用户也**不访问** `auth.wechat_*`，其它 0.3.0 行为不变。宿主可不建微信表。
 
 详细配置见 [configuration.md](configuration.md)；HTTP 契约摘要见 [api.md](api.md)；升级见 [upgrade.md](upgrade.md)。
 

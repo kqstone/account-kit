@@ -54,7 +54,7 @@ async def ensure_schema(engine: AsyncEngine) -> None:
     any missing kit tables, and the single-admin unique index (skipped with a
     warning if more than one admin already exists). Safe to run on every start.
     Equivalent SQL: account_kit/sql/upgrade_0_2_2.sql, upgrade_0_2_3.sql,
-    then upgrade_0_4_0.sql."""
+    upgrade_0_4_0.sql, then upgrade_0_5_0.sql."""
     await init_db(engine)
 
 

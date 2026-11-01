@@ -302,3 +302,37 @@ class WechatLoginTicket(Base):
     payload_cipher = Column(Text, nullable=True)
     mfa_challenge_hash = Column(String(64), nullable=True)
 
+
+# --- 0.5.0: OIDC authorization codes (new table only) ------------------------
+
+
+class OAuthAuthorizationCode(Base):
+    __tablename__ = "oauth_authorization_codes"
+    __table_args__ = (
+        UniqueConstraint("code_hash"),
+        Index("ix_auth_oauth_authorization_codes_expires_at", "expires_at"),
+        Index("ix_auth_oauth_authorization_codes_access_jti", "access_jti"),
+        AUTH,
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    code_hash = Column(String(64), nullable=False)
+    client_id = Column(String(128), nullable=False)
+    user_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("auth.users.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    redirect_uri = Column(String(512), nullable=False)
+    code_challenge = Column(String(128), nullable=False)
+    code_challenge_method = Column(String(16), nullable=False, default="S256", server_default="S256")
+    nonce = Column(String(256), nullable=True)
+    scope = Column(String(256), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    access_jti = Column(String(64), nullable=True)
+    replayed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    created_ip = Column(String(64), nullable=True)
+

@@ -4,6 +4,53 @@
 
 ---
 
+## 升级至 0.5.0（OIDC IdP）
+
+新增默认关闭的 SSO IdP 模块，以及 LoginForm 记住登录字段。未打开 `sso_idp_enabled` 的宿主行为与 0.4.1 相同：不注册新路由。`wechat_enabled=False` 时改密 / 重置 / 删用户不再访问微信表（0.4.x 即使关模块也会打表）。
+
+契约见 [sso.md](sso.md)。
+
+### 数据库
+
+新表（只加表，不加列）：`auth.oauth_authorization_codes`。
+
+**用 Python（推荐，每次启动可跑）：**
+
+```python
+from account_kit import ensure_schema
+
+await ensure_schema(engine)
+```
+
+**用手写 SQL：** 在已执行 `upgrade_0_4_0.sql` 的库上再跑包内
+
+`account_kit/sql/upgrade_0_5_0.sql`
+
+（`account_kit.schema_setup.upgrade_sql("0.5.0")` 可读到同一份。幂等。无参 `upgrade_sql()` 仍默认 `"0.4.0"`。）
+
+关 SSO 的宿主可不建此表。关微信的宿主可不建 `auth.wechat_*`。
+
+### 宿主迁移
+
+1. pin `account-kit==0.5.0` 与 `@kqstone/account-ui-vue`（或 react）同版本。
+2. 需要当 IdP 的宿主：`sso_idp_enabled=True`，`sso_issuer` 用 https（例 `https://gingiva.top:8443`），RS256 私钥与 client_secret 来自环境变量。可用 `SsoClientConfig.from_env("ACCOUNT_KIT_SSO_CLIENT_DEDD")`。
+3. 授权页由宿主前端实现，登录后 POST `{api_prefix}/oauth/authorize`。nginx 需把 `/.well-known/` 转到后端。
+4. RP 用 kit 的 `exchange_authorization_code` / `fetch_userinfo` / `verify_id_token`，`sso_links` 留在宿主。
+5. 保持关闭：不设 `sso_idp_enabled` 即可。
+6. dental 等记住登录：用 `LoginForm` 的 `defaultUsername` / `defaultPassword`、`beforeSubmit`（返回 `false` 中止）、`name`/`autocomplete`，以及成功回调里的用户名密码；可去掉 `HostLoginForm`。
+
+### 行为说明
+
+| 变化 | 兼容性 |
+|---|---|
+| 新路由仅 `sso_idp_enabled=True` 时挂载 | 兼容：默认关 |
+| 关微信时不再 SQL `auth.wechat_*` | 兼容修复：无微信表的宿主改密不再 500 |
+| Vue `initialUsername` 仍可用；新增 `defaultUsername` | 兼容扩展 |
+| React `onSuccess` 增加可选第二参 | 兼容：旧单参回调仍可用 |
+| `id_token` 不使用 `jwt_secret` | 无宿主影响 |
+
+---
+
 ## 升级至 0.4.0（微信小程序码登录）
 
 新增默认关闭的 wechat 模块：网页/App 展示小程序码，医生扫码确认后该端拿到与 `POST /login` 相同形状的 token。小程序 **不发 JWT**，**不占** `users.current_session_id`，**没有伴生会话**。宿主不必改 `get_current_user` 的 `sid` 规则。契约见 [wechat.md](wechat.md)。
