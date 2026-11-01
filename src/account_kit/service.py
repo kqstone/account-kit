@@ -167,6 +167,21 @@ async def revoke_credentials(
     await revoke_user_tokens(db, user_id, reason)
 
 
+async def _invalidate_optional_modules(db: AsyncSession, config: AccountKitConfig, user_id, *, identities: bool = False) -> None:
+    """Skip wechat/sso SQL when the module is off so hosts need not create those tables."""
+    if config.wechat_enabled:
+        from account_kit.wechat.service import delete_user_identities, invalidate_user_tickets
+
+        if identities:
+            await delete_user_identities(db, user_id)
+        else:
+            await invalidate_user_tickets(db, user_id)
+    if config.sso_idp_enabled:
+        from account_kit.sso.service import invalidate_user_codes
+
+        await invalidate_user_codes(db, user_id)
+
+
 async def _revoke_second_factor_memory(db: AsyncSession, user_id, config: Optional[AccountKitConfig] = None) -> None:
     await revoke_credentials(db, config, user_id, "password_changed")
 
@@ -347,9 +362,7 @@ async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str,
     if config.session_mode == "single_device":
         _clear_session(user)
     await revoke_credentials(db, config, user.id, "password_changed")
-    from account_kit.wechat.service import invalidate_user_tickets
-
-    await invalidate_user_tickets(db, user.id)
+    await _invalidate_optional_modules(db, config, user.id)
     if config.on_password_changed is not None:
         await config.on_password_changed(db, user)
     await db.commit()
@@ -374,9 +387,7 @@ async def change_password(
     if config.session_mode == "single_device":
         _clear_session(user)
     await revoke_credentials(db, config, user.id, "password_changed")
-    from account_kit.wechat.service import invalidate_user_tickets
-
-    await invalidate_user_tickets(db, user.id)
+    await _invalidate_optional_modules(db, config, user.id)
     if config.on_password_changed is not None:
         await config.on_password_changed(db, user)
     await db.commit()
@@ -438,9 +449,7 @@ async def update_profile(
         if config.session_mode == "single_device":
             _clear_session(user)
         await revoke_credentials(db, config, user.id, "password_changed")
-        from account_kit.wechat.service import invalidate_user_tickets
-
-        await invalidate_user_tickets(db, user.id)
+        await _invalidate_optional_modules(db, config, user.id)
         if config.on_password_changed is not None:
             await config.on_password_changed(db, user)
 
@@ -518,20 +527,18 @@ async def delete_user_account(db: AsyncSession, config: AccountKitConfig, user: 
         await config.on_deleted(db, user)
     if mode == "hard":
         from account_kit.two_factor.challenges import challenge_store
-        from account_kit.wechat.service import delete_user_identities
 
         challenge_store.discard_user(user.id)
-        await delete_user_identities(db, user.id)
+        await _invalidate_optional_modules(db, config, user.id, identities=True)
         await db.delete(user)
         await db.commit()
         return mode
     old_avatar = user.avatar_path
     await revoke_credentials(db, config, user.id, "deleted")
     from account_kit.two_factor.service import wipe_two_factor
-    from account_kit.wechat.service import delete_user_identities
 
     await wipe_two_factor(db, user.id)
-    await delete_user_identities(db, user.id)
+    await _invalidate_optional_modules(db, config, user.id, identities=True)
     _clear_session(user)
     _tombstone(user)
     user.avatar_path = None

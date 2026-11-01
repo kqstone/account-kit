@@ -155,6 +155,46 @@ async def test_disabled_has_no_routes(api):
     assert res.status_code in (401, 404)
 
 
+async def test_disabled_skips_wechat_sql(api):
+    """Hosts that never create wechat tables can still change/reset/delete users."""
+    async with api["sessions"]() as db:
+        await db.execute(text("DROP TABLE IF EXISTS auth.wechat_login_tickets"))
+        await db.execute(text("DROP TABLE IF EXISTS auth.wechat_identities"))
+        await db.commit()
+    assert api["config"].wechat_enabled is False
+    user, body = await approved_user(api, username="nowx")
+    changed = await api["client"].post(
+        "/api/auth/change-password",
+        json={"old_password": "secret1", "new_password": "secret2"},
+        headers=bearer(body),
+    )
+    assert changed.status_code == 200, changed.text
+    reset_user, _ = await approved_user(api, username="nowx2", login=False)
+    sent = await api["client"].post(
+        "/api/auth/send-code", json={"email": "nowx2@example.com", "purpose": "reset_password"}
+    )
+    assert sent.status_code == 200, sent.text
+    code = api["sent"][-1]["code"]
+    reset = await api["client"].post(
+        "/api/auth/reset-password",
+        json={"email": "nowx2@example.com", "code": code, "new_password": "secret9"},
+    )
+    assert reset.status_code == 200, reset.text
+    api["config"].self_delete_enabled = True
+    victim, tokens = await approved_user(api, username="nowx3")
+    deleted = await api["client"].post(
+        "/api/auth/me/delete", json={"password": "secret1"}, headers=bearer(tokens)
+    )
+    assert deleted.status_code == 200, deleted.text
+    _admin, admin_headers = await make_admin(api, username="nowxadmin")
+    other, _ = await approved_user(api, username="nowx4", login=False)
+    gone = await api["client"].delete(f"/api/admin/account/users/{other['id']}", headers=admin_headers)
+    assert gone.status_code == 204, gone.text
+    assert user["username"] == "nowx"
+    assert reset_user["username"] == "nowx2"
+    assert victim["username"] == "nowx3"
+
+
 async def test_not_configured_returns_503():
     engine = create_async_engine(_database_url())
     async with engine.begin() as conn:

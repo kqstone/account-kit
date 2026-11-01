@@ -43,7 +43,8 @@ BeforeSendCode = Callable[[object, str, str], Awaitable[None]]
 # request, action, info: generic hook before sensitive kit actions. ``action`` is one
 # of send_code, verify_code, register, reset_password, change_password, change_email,
 # refresh, logout, delete_account, captcha, wechat_start, wechat_confirm, wechat_bind,
-# wechat_unbind, wechat_register. ``info`` is a small dict (email, purpose, user).
+# wechat_unbind, wechat_register, sso_authorize, sso_token, sso_userinfo.
+# ``info`` is a small dict (email, purpose, user).
 BeforeAction = Callable[[object, str, Dict[str, Any]], Awaitable[None]]
 # js_code -> {openid, unionid?}. session_key must be dropped by the callable.
 WechatCode2Session = Callable[[str], Union[Dict[str, Any], Awaitable[Dict[str, Any]]]]
@@ -54,6 +55,50 @@ WechatGetWxaCode = Callable[..., Union[bytes, Awaitable[bytes]]]
 AuditHook = Callable[..., Awaitable[None]]
 # request -> locale tag (e.g. cookie / JWT / host i18n). Return None to fall through.
 LocaleResolver = Callable[[object], Optional[str]]
+
+
+@dataclass
+class SsoClientConfig:
+    """One OIDC relying party. ``client_secret`` is server-side only (from env)."""
+
+    client_id: str
+    client_secret: str
+    redirect_uris: Tuple[str, ...] = ()
+    name: str = ""
+
+    def __repr__(self) -> str:
+        return (
+            f"SsoClientConfig(client_id={self.client_id!r}, name={self.name!r}, "
+            f"redirect_uris={self.redirect_uris!r})"
+        )
+
+    @classmethod
+    def from_env(
+        cls,
+        prefix: str,
+        *,
+        client_id: str = "",
+        redirect_uris: Optional[Tuple[str, ...]] = None,
+        name: str = "",
+    ) -> "SsoClientConfig":
+        """Load secret (and optional id/redirect/name) from ``{prefix}_SECRET`` etc.
+
+        Example prefix ``ACCOUNT_KIT_SSO_CLIENT_DEDD`` reads
+        ``ACCOUNT_KIT_SSO_CLIENT_DEDD_SECRET``.
+        """
+        import os
+
+        p = (prefix or "").rstrip("_")
+        cid = (client_id or os.environ.get(f"{p}_ID") or os.environ.get(f"{p}_CLIENT_ID") or "").strip()
+        secret = os.environ.get(f"{p}_SECRET") or os.environ.get(f"{p}_CLIENT_SECRET") or ""
+        raw_redirect = os.environ.get(f"{p}_REDIRECT") or os.environ.get(f"{p}_REDIRECT_URI") or ""
+        uris = (
+            redirect_uris
+            if redirect_uris is not None
+            else tuple(u.strip() for u in raw_redirect.split(",") if u.strip())
+        )
+        nm = name or os.environ.get(f"{p}_NAME") or ""
+        return cls(client_id=cid, client_secret=secret, redirect_uris=uris, name=nm)
 
 
 @dataclass
@@ -223,6 +268,27 @@ class AccountKitConfig:
     wechat_code2session: Optional[WechatCode2Session] = None
     wechat_get_wxacode: Optional[WechatGetWxaCode] = None
 
+    # --- OIDC IdP (0.5.0) ----------------------------------------------------
+    # Off by default. Routes are registered only when ``sso_idp_enabled`` is True.
+    # Per-request: False after mount → 403 SSO_DISABLED (hot-off). Turning on at
+    # runtime without remounting does not add routes.
+    sso_idp_enabled: bool = False
+    sso_issuer: str = ""
+    # RS256 (default): PEM private key; JWKS publishes the public key + kid.
+    # HS256: each client's client_secret signs tokens. Never falls back to jwt_secret.
+    sso_jwt_algorithm: str = "RS256"
+    sso_signing_key_pem: str = ""
+    sso_signing_kid: str = "sso-1"
+    sso_clients: Tuple[SsoClientConfig, ...] = ()
+    sso_code_ttl_seconds: int = 60
+    sso_id_token_ttl_seconds: int = 300
+    sso_require_pkce: bool = True
+    sso_mount_well_known_root: bool = True
+    sso_token_rate_limit_ip: int = 30
+    sso_token_rate_limit_client: int = 30
+    # Tests / local HTTP. Production issuer must be https.
+    sso_allow_http_issuer: bool = False
+
     def challenge_ttl(self) -> int:
         return max(30, int(self.two_factor_challenge_ttl_seconds or 300))
 
@@ -247,6 +313,31 @@ class AccountKitConfig:
         if self.admin_access_token_expire_minutes is None:
             return int(self.access_token_expire_minutes)
         return int(self.admin_access_token_expire_minutes)
+
+    def sso_issuer_value(self) -> str:
+        return (self.sso_issuer or "").strip().rstrip("/")
+
+    def sso_alg(self) -> str:
+        return (self.sso_jwt_algorithm or "RS256").strip().upper() or "RS256"
+
+    def sso_configured(self) -> bool:
+        if not self.sso_issuer_value() or not self.sso_clients:
+            return False
+        alg = self.sso_alg()
+        if alg == "RS256":
+            return bool((self.sso_signing_key_pem or "").strip())
+        if alg == "HS256":
+            return any(bool((c.client_secret or "").strip()) for c in self.sso_clients)
+        return False
+
+    def sso_client(self, client_id: Optional[str]) -> Optional[SsoClientConfig]:
+        wanted = (client_id or "").strip()
+        if not wanted:
+            return None
+        for client in self.sso_clients:
+            if client.client_id == wanted:
+                return client
+        return None
 
 
 _config: Optional[AccountKitConfig] = None

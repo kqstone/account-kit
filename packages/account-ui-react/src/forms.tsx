@@ -1,35 +1,45 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser, type TokenPair } from "./client"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, type FormLabels } from "./labels"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
 import { formatError, interpolate, type DeepPartial } from "./utils"
 
+export type LoginSuccessExtra = { username: string; password: string; tokens: TokenPair }
+
 export function LoginForm({
   client,
   deviceName,
+  defaultUsername,
+  defaultPassword,
   trustedDeviceToken,
+  beforeSubmit,
   onSuccess,
   onTokens,
   onMfa,
   language,
   labels,
+  children,
 }: {
   client: AccountClient
   deviceName?: string
+  defaultUsername?: string
+  defaultPassword?: string
   trustedDeviceToken?: string | ((username: string) => string)
-  onSuccess: (token: string) => void
+  beforeSubmit?: (payload: { username: string; password: string }) => boolean | void | Promise<boolean | void>
+  onSuccess: (token: string, extra?: LoginSuccessExtra) => void
   onTokens?: (tokens: TokenPair) => void
   onMfa?: (challenge: MfaChallenge & { username: string; password: string; force: boolean }) => void
   language?: string
   labels?: DeepPartial<FormLabels> | null
+  children?: ReactNode
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
   const { messages } = useAccountI18n()
   const L = useMemo(() => resolveFormLabels(locale, labels, messages), [locale, labels, messages])
-  const [username, setUsername] = useState("")
-  const [password, setPassword] = useState("")
+  const [username, setUsername] = useState(defaultUsername || "")
+  const [password, setPassword] = useState(defaultPassword || "")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const [force, setForce] = useState(false)
@@ -62,6 +72,10 @@ export function LoginForm({
     setBusy(true)
     const usedCaptcha = captchaNeeded
     try {
+      if (beforeSubmit) {
+        const ok = await beforeSubmit({ username, password })
+        if (ok === false) return
+      }
       const name = username.trim()
       const trusted = typeof trustedDeviceToken === "function" ? trustedDeviceToken(name) : trustedDeviceToken
       const token = await client.login(name, password, {
@@ -73,7 +87,7 @@ export function LoginForm({
       })
       setCaptchaNeeded(false)
       onTokens?.(token)
-      onSuccess(token.access_token)
+      onSuccess(token.access_token, { username, password, tokens: token })
     } catch (err) {
       const body = err instanceof AccountApiError ? err.body : null
       const detail =
@@ -114,11 +128,11 @@ export function LoginForm({
     <form className="ak-form" onSubmit={submit}>
       <label>
         {L.username}
-        <input value={username} autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
+        <input name="username" value={username} autoComplete="username" onChange={(event) => setUsername(event.target.value)} />
       </label>
       <label>
         {L.password}
-        <input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
+        <input name="password" type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       </label>
       {captchaNeeded ? (
         <label>
@@ -139,6 +153,7 @@ export function LoginForm({
           </span>
         </label>
       ) : null}
+      {children}
       {error ? <p className="ak-error">{error}</p> : null}
       <button type="submit" disabled={busy}>
         {busy ? L.loggingIn : force ? L.forceLogin : L.login}

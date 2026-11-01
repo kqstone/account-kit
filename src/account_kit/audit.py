@@ -41,6 +41,8 @@ WECHAT_BOUND = "wechat_bound"
 WECHAT_UNBOUND = "wechat_unbound"
 LOGIN_WECHAT = "login_wechat"
 WECHAT_REGISTER = "wechat_register"
+SSO_AUTHORIZE = "sso_authorize"
+SSO_TOKEN = "sso_token"
 
 
 def request_ip(config: AccountKitConfig, request) -> str:

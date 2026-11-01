@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.5.0
+
+可选 OIDC IdP（默认关闭）、关微信时跳过 wechat 表、LoginForm 记住登录。
+
+- 新模块 `account_kit.sso`：Authorization Code + PKCE S256。路由仅 `sso_idp_enabled=True` 时挂载；热关 403 `SSO_DISABLED`。未挂载 404。
+- `id_token` / SSO `access_token` 与登录 JWT 隔离：默认 RS256（`sso_signing_key_pem` + JWKS `kid`），可选 HS256（用 client_secret 签）。都不回落 `jwt_secret`。
+- 表 `auth.oauth_authorization_codes`。客户端用配置 / `SsoClientConfig.from_env`，不进库、不进 GET。
+- authorize 为已登录 Bearer 的 POST（宿主确认页点确认后发码）；`state` 必填原样回传；`redirect_uri` 精确匹配；管理员与无邮箱拒绝。
+- token 仅 form；`client_secret_post` / `basic` 不可同时；常量时间比较；code 一次性 60s，重放作废已签出 `jti`。userinfo 拒绝登录 JWT。
+- `id_token` 与 userinfo 均含 `email`、`email_verified`、`name`、`preferred_username`、`username`。
+- RP 辅助：`discover`（TTL 可注入缓存）、`exchange_authorization_code`、`fetch_userinfo`、`verify_id_token`（iss/aud/exp/nonce/签名）。
+- `wechat_enabled=False` 时改密 / 重置 / 删用户不再访问 `auth.wechat_*`，宿主可不建微信表。
+- Vue / React `LoginForm`：`defaultUsername` / `defaultPassword`、`beforeSubmit`（返回 `false` 中止）、输入框 `name` / `autocomplete`；React `onSuccess` 第二参带凭据。`sso_links` 不进 kit。
+
+契约：[docs/sso.md](docs/sso.md)。
+
 ## 0.4.1
 
 微信 bind-existing 图形验证码与普通登录对齐。
