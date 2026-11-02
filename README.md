@@ -9,12 +9,13 @@
 
 ---
 
-## 功能列表 (0.5.0)
+## 功能列表 (0.5.1)
 
 - **核心认证**：账号密码注册与登录、邮箱验证码流转、管理员注册审批机制、单设备互踢会话模式 (`single_device`)、自定义业务角色与用户等级目录、后台管理员权限 (`is_admin`) 隔离。
 - **两步验证 (2FA / MFA)**：基于 TOTP 标准的时间戳动态口令、应急备用恢复码、受信设备免验证保持、邮箱验证码作为备用第二因素（用于免验证器登录或紧急解绑）。
 - **微信小程序码登录**：网页/App 展示小程序码，扫码确认后该端拿到与密码登录相同的主会话 token。小程序不发 JWT、无伴生会话。模块默认关闭。详见 [docs/wechat.md](docs/wechat.md)。
 - **OIDC Identity Provider**：可选 Authorization Code + PKCE；`id_token` 与登录 JWT 隔离。默认关闭。详见 [docs/sso.md](docs/sso.md)。
+- **免密账号设置密码**（0.5.1）：`auth.users.password_set=false`（如 SSO 自动建号，`account_kit.create_user` 不传密码即可）的账号用邮箱验证码「设置密码」，无需旧密码；`/me` 返回 `password_set`，Vue/React `ProfileFields` 自动切换表单。迁移见 [docs/upgrade.md](docs/upgrade.md)。
 - **图形验证码 (Captcha)**：连续登录失败自动触发验证码拦截，支持宿主自定义校验服务或开箱即用的内置图形验证码。
 - **防爆破与频控限流**：验证码输错上限熔断与失效锁定机制，全站验证码发信、密码重置、登录端点 IP 与用户维度的滑动窗口频控。
 - **账号与资料安全**：换绑邮箱强制新邮箱验证码验证、刷新令牌 (Refresh Token) 家族轮换与重放检测惩罚、标准注销登录端点、用户自助注销账号（支持硬删除与脱敏软删除）。

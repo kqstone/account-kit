@@ -276,7 +276,7 @@
 ### 查询当前用户信息 `GET {api_prefix}/me`
 
 - **认证**: 需要登录 Bearer Token
-- **响应 (200 OK)**: 返回当前用户的完整 Profile 信息。
+- **响应 (200 OK)**: 返回当前用户的完整 Profile 信息。0.5.1 起含 `password_set`（布尔）：`false` 表示账号没有用户已知的密码（如 SSO 自动建号），前端应显示「设置密码」。
 
 ---
 
@@ -296,6 +296,7 @@
 - **认证**: 需要登录 Bearer Token
 - **请求体**: `{"old_password": "...", "new_password": "...", "code": "..."}`
 - **说明**: 默认不强制要求邮箱验证码；若开启 `change_password_require_email_code=True`，则 `code` 必填。修改成功后吊销所有受信设备及刷新令牌。
+- **设置密码（0.5.1）**: 当 `password_set=false` 时不校验 `old_password`（可省略或传空），改为**强制**邮箱验证码：先 `POST /send-code`（`purpose=change_password`，带 Bearer）发到账号邮箱，再带 `code` 调用本接口；缺码返回 `400 EMAIL_CODE_REQUIRED`，账号无邮箱返回 `400 PASSWORD_SET_EMAIL_REQUIRED`。成功后 `password_set=true`，之后恢复常规改密规则。`PATCH /me` 的 `new_password` 同样适用（免 `current_password`，需 `code`）。`POST /reset-password` 成功也会把 `password_set` 置为 `true`。
 
 ---
 
@@ -430,6 +431,7 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `PASSWORD_TOO_LONG` | 400 | string | | 密码过长 | Password is too long |
 | `PASSWORD_INCORRECT` | 400 | string | | 当前密码错误 | Current password is incorrect |
 | `OLD_PASSWORD_INCORRECT` | 400 | string | | 旧密码错误 | Current password is incorrect |
+| `PASSWORD_SET_EMAIL_REQUIRED` | 400 | string | 0.5.1 | 账号未绑定邮箱，无法设置密码 | This account has no email address, so a password cannot be set |
 | `PASSWORD_REQUIRED` | 400 | dict | | 管理员开启两步验证需要当前密码 | Admins must enter the current password to turn on two-factor authentication |
 | `EMAIL_TAKEN` | 400 | string | | 该邮箱已注册 | Email already registered |
 | `EMAIL_INVALID` | 400 | string | | 邮箱无效 | Invalid email |

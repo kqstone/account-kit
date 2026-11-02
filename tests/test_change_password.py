@@ -174,3 +174,97 @@ async def test_patch_me_still_requires_email_code(api):
     )
     assert ok.status_code == 200, ok.text
     assert ok.json()["access_token"]
+
+
+async def _passwordless_headers(api, email="sso@example.com", username="ssouser"):
+    from account_kit.service import complete_login_tokens, create_user
+
+    async with api["sessions"]() as db:
+        user = await create_user(db, get_config(), username=username, email=email)
+        assert user.password_set is False
+        uid = user.id
+        _, body = await complete_login_tokens(db, get_config(), user)
+    token = body["access_token"]
+    return uid, {"Authorization": f"Bearer {token}"}
+
+
+async def test_me_reports_password_set(api):
+    _, headers = await _approved_headers(api, email="ps@example.com", username="psuser")
+    me = await api["client"].get("/api/auth/me", headers=headers)
+    assert me.status_code == 200
+    assert me.json()["password_set"] is True
+
+
+async def test_set_password_requires_email_code_not_old_password(api):
+    uid, headers = await _passwordless_headers(api)
+    client = api["client"]
+    me = await client.get("/api/auth/me", headers=headers)
+    assert me.status_code == 200, me.text
+    assert me.json()["password_set"] is False
+
+    missing = await client.post("/api/auth/change-password", json={"new_password": "secret2"}, headers=headers)
+    assert missing.status_code == 400
+    assert missing.json()["detail"]["code"] == "EMAIL_CODE_REQUIRED"
+
+    sent = await client.post(
+        "/api/auth/send-code",
+        json={"email": "sso@example.com", "purpose": "change_password", "language": "zh"},
+        headers=headers,
+    )
+    assert sent.status_code == 200, sent.text
+    code = api["sent"][-1]["code"]
+    ok = await client.post(
+        "/api/auth/change-password",
+        json={"old_password": "whatever", "new_password": "secret2", "code": code},
+        headers=headers,
+    )
+    assert ok.status_code == 200, ok.text
+    async with api["sessions"]() as db:
+        row = await db.get(User, uid)
+        assert row.password_set is True
+    fresh = await client.post("/api/auth/login", data={"username": "ssouser", "password": "secret2", "force": "true"})
+    assert fresh.status_code == 200, fresh.text
+    me2 = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {fresh.json()['access_token']}"})
+    assert me2.json()["password_set"] is True
+
+    # Once set, the old password is required again.
+    bad = await client.post(
+        "/api/auth/change-password",
+        json={"old_password": "nope", "new_password": "secret3"},
+        headers={"Authorization": f"Bearer {fresh.json()['access_token']}"},
+    )
+    assert bad.status_code == 400
+
+
+async def test_reset_password_marks_password_set(api):
+    uid, _ = await _passwordless_headers(api, email="rs@example.com", username="rsuser")
+    client = api["client"]
+    sent = await client.post("/api/auth/send-code", json={"email": "rs@example.com", "purpose": "reset_password", "language": "zh"})
+    assert sent.status_code == 200, sent.text
+    code = api["sent"][-1]["code"]
+    reset = await client.post(
+        "/api/auth/reset-password", json={"email": "rs@example.com", "code": code, "new_password": "secret5"}
+    )
+    assert reset.status_code == 200, reset.text
+    async with api["sessions"]() as db:
+        row = await db.get(User, uid)
+        assert row.password_set is True
+
+
+async def test_create_user_explicit_password_defaults_set(api):
+    from account_kit.service import create_user
+
+    async with api["sessions"]() as db:
+        user = await create_user(db, get_config(), username="hostmade", email="hm@example.com", password="secret1")
+        assert user.password_set is True
+        other = await create_user(
+            db, get_config(), username="hostmade2", email="hm2@example.com", password="secret1", password_set=False
+        )
+        assert other.password_set is False
+
+
+def test_upgrade_sql_0_5_1():
+    from account_kit.schema_setup import upgrade_sql
+
+    sql = upgrade_sql("0.5.1")
+    assert "ADD COLUMN IF NOT EXISTS password_set BOOLEAN NOT NULL DEFAULT true" in sql

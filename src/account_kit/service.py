@@ -125,6 +125,7 @@ async def to_response(db: AsyncSession, user: User) -> UserResponse:
             "pending_role": await pending_role(db, user.id),
             "birth_year_month": format_birth_year_month(user.birth_year_month),
             "has_custom_avatar": bool(user.avatar_path),
+            "password_set": _password_set(user),
             "tier": tier.code if tier else None,
             "tier_name": tier.name if tier else None,
             "tier_badge_color": tier.badge_color if tier else None,
@@ -184,6 +185,74 @@ async def _invalidate_optional_modules(db: AsyncSession, config: AccountKitConfi
 
 async def _revoke_second_factor_memory(db: AsyncSession, user_id, config: Optional[AccountKitConfig] = None) -> None:
     await revoke_credentials(db, config, user_id, "password_changed")
+
+
+def _password_set(user: User) -> bool:
+    value = getattr(user, "password_set", True)
+    return True if value is None else bool(value)
+
+
+async def create_user(
+    db: AsyncSession,
+    config: AccountKitConfig,
+    *,
+    username: str,
+    email: str,
+    password: Optional[str] = None,
+    password_set: Optional[bool] = None,
+    role: Optional[str] = None,
+    full_name: Optional[str] = None,
+    institution: Optional[str] = None,
+    approved: bool = True,
+    commit: bool = True,
+) -> User:
+    """Host-side account creation (e.g. SSO auto-provisioning), no email code.
+
+    Without ``password`` a random unusable password is stored and ``password_set``
+    defaults to False, so the user later sets one via change-password + email code.
+    """
+    import secrets
+
+    username = assert_username(config, username)
+    if await get_user_by_username(db, username):
+        raise account_error(400, "USERNAME_TAKEN")
+    if await get_user_by_email(db, email):
+        raise account_error(400, "EMAIL_TAKEN")
+    if role:
+        code = assert_role_code(role)
+        role_row = await db.get(Role, code)
+        if role_row is None:
+            raise account_error(400, "ROLE_INVALID")
+    else:
+        role_row = await default_role(db)
+    if password is None:
+        password = secrets.token_urlsafe(32)
+        if password_set is None:
+            password_set = False
+    if password_set is None:
+        password_set = True
+    now = datetime.now(timezone.utc)
+    user = User(
+        username=username,
+        email=normalize_email(email),
+        hashed_password=hash_password(password),
+        full_name=full_name,
+        institution=institution,
+        role=role_row.code,
+        is_admin=False,
+        is_active=True,
+        password_set=bool(password_set),
+        approval_status="approved" if approved else "pending",
+        approved_at=now if approved else None,
+    )
+    db.add(user)
+    await db.flush()
+    tier = await default_tier(db)
+    db.add(UserTierAssignment(user_id=user.id, tier_code=tier.code))
+    if commit:
+        await db.commit()
+        await db.refresh(user)
+    return user
 
 
 async def register_user(db: AsyncSession, config: AccountKitConfig, payload: RegisterRequest) -> User:
@@ -359,6 +428,7 @@ async def reset_password(db: AsyncSession, config: AccountKitConfig, email: str,
     if not user:
         raise account_error(404, "EMAIL_NOT_REGISTERED")
     user.hashed_password = hash_password(new_password)
+    user.password_set = True
     if config.session_mode == "single_device":
         _clear_session(user)
     await revoke_credentials(db, config, user.id, "password_changed")
@@ -378,12 +448,18 @@ async def change_password(
     *,
     code: Optional[str] = None,
 ) -> None:
-    if not verify_password(old_password, user.hashed_password):
+    initial = not _password_set(user)
+    if initial:
+        # No user-known password yet (e.g. SSO-provisioned): prove mailbox ownership instead.
+        if not (user.email or "").strip():
+            raise account_error(400, "PASSWORD_SET_EMAIL_REQUIRED")
+    elif not verify_password(old_password or "", user.hashed_password):
         raise account_error(400, "OLD_PASSWORD_INCORRECT")
     assert_password(config, new_password, admin=bool(user.is_admin))
-    if config.change_password_require_email_code:
+    if initial or config.change_password_require_email_code:
         await check_code(db, config, user.email, "change_password", code, missing_detail=dict(EMAIL_CODE_REQUIRED))
     user.hashed_password = hash_password(new_password)
+    user.password_set = True
     if config.session_mode == "single_device":
         _clear_session(user)
     await revoke_credentials(db, config, user.id, "password_changed")
@@ -440,12 +516,15 @@ async def update_profile(
         user.birth_year_month = birth_year_month_to_date(payload.birth_year_month)
 
     if payload.new_password:
-        if not payload.current_password or not verify_password(payload.current_password, user.hashed_password):
+        if _password_set(user) and (
+            not payload.current_password or not verify_password(payload.current_password, user.hashed_password)
+        ):
             raise account_error(400, "PASSWORD_INCORRECT")
         assert_password(config, payload.new_password, admin=bool(user.is_admin))
         code_email = email_changed_from or user.email
         await check_code(db, config, code_email, "change_password", payload.code, missing_detail=dict(EMAIL_CODE_REQUIRED))
         user.hashed_password = hash_password(payload.new_password)
+        user.password_set = True
         if config.session_mode == "single_device":
             _clear_session(user)
         await revoke_credentials(db, config, user.id, "password_changed")

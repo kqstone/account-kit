@@ -227,7 +227,10 @@ export const ProfileFields = defineComponent({
     onBeforeUnmount(() => {
       if (cooldownTimer) clearInterval(cooldownTimer)
     })
-    const showCode = () => props.passwordEmailCode === true || (props.passwordEmailCode === "auto" && codeNeeded.value)
+    // 0.5.1: account without a user-known password -> "Set password" with email code, no old password.
+    const settingPassword = () => props.user?.password_set === false
+    const showCode = () =>
+      settingPassword() || props.passwordEmailCode === true || (props.passwordEmailCode === "auto" && codeNeeded.value)
 
     async function sendPasswordCode() {
       const labels = L()
@@ -287,9 +290,14 @@ export const ProfileFields = defineComponent({
         emit("saved", patched)
         if (newPassword.value) {
           try {
-            await props.client.changePassword(props.token, oldPassword.value, newPassword.value, emailCode.value.trim() || undefined)
+            await props.client.changePassword(
+              props.token,
+              settingPassword() ? "" : oldPassword.value,
+              newPassword.value,
+              emailCode.value.trim() || undefined,
+            )
           } catch (e) {
-            if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && props.passwordEmailCode !== false) {
+            if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && (settingPassword() || props.passwordEmailCode !== false)) {
               codeNeeded.value = true
               error.value = labels.passwordEmailCodeHint
               return
@@ -338,8 +346,9 @@ export const ProfileFields = defineComponent({
           h("label", [labels.birth, h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })]),
           props.showChangePassword
             ? [
-                h("h3", { style: "margin:8px 0 0;font-size:15px" }, labels.changePassword),
-                h("label", [labels.oldPassword, h("input", { type: "password", value: oldPassword.value, autocomplete: "current-password", onInput: (event: Event) => { oldPassword.value = textOf(event) } })]),
+                h("h3", { style: "margin:8px 0 0;font-size:15px" }, settingPassword() ? labels.setPassword : labels.changePassword),
+                settingPassword() ? h("p", { class: "ak-hint" }, labels.setPasswordHint) : null,
+                settingPassword() ? null : h("label", [labels.oldPassword, h("input", { type: "password", value: oldPassword.value, autocomplete: "current-password", onInput: (event: Event) => { oldPassword.value = textOf(event) } })]),
                 h("label", [labels.newPassword, h("input", { type: "password", value: newPassword.value, autocomplete: "new-password", onInput: (event: Event) => { newPassword.value = textOf(event) } })]),
                 h("label", [labels.confirmPassword, h("input", { type: "password", value: confirmPassword.value, autocomplete: "new-password", onInput: (event: Event) => { confirmPassword.value = textOf(event) } })]),
                 showCode()

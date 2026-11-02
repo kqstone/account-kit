@@ -58,7 +58,8 @@ class ResetPasswordRequest(BaseModel):
 
 
 class ChangePasswordRequest(BaseModel):
-    old_password: str
+    # Ignored when the account has password_set=false (an email code is required instead).
+    old_password: str = ""
     new_password: str
     code: Optional[str] = None
 
@@ -94,6 +95,7 @@ class UserResponse(BaseModel):
     is_admin: bool
     is_active: bool
     approval_status: str
+    password_set: bool = True
     has_custom_avatar: bool = False
     pending_role: Optional[str] = None
     tier: Optional[str] = None

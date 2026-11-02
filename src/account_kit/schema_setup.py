@@ -41,12 +41,29 @@ def _ensure_single_admin_index_sync(conn) -> None:
     conn.execute(text("CREATE UNIQUE INDEX IF NOT EXISTS uq_users_single_admin ON auth.users (is_admin) WHERE is_admin = true"))
 
 
+# Columns added after a table first shipped; create_all does not alter existing tables.
+_COLUMN_UPGRADES = (
+    "ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS password_set BOOLEAN NOT NULL DEFAULT true",
+)
+
+
+async def _ensure_columns_async(conn) -> None:
+    for stmt in _COLUMN_UPGRADES:
+        await conn.execute(text(stmt))
+
+
+def _ensure_columns_sync(conn) -> None:
+    for stmt in _COLUMN_UPGRADES:
+        conn.execute(text(stmt))
+
+
 async def init_db(engine: AsyncEngine) -> None:
     """Create the auth schema and account tables. Does not drop anything."""
     async with engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS auth"))
         await conn.run_sync(Base.metadata.create_all)
         await _ensure_single_admin_index_async(conn)
+        await _ensure_columns_async(conn)
 
 
 async def ensure_schema(engine: AsyncEngine) -> None:
@@ -54,7 +71,7 @@ async def ensure_schema(engine: AsyncEngine) -> None:
     any missing kit tables, and the single-admin unique index (skipped with a
     warning if more than one admin already exists). Safe to run on every start.
     Equivalent SQL: account_kit/sql/upgrade_0_2_2.sql, upgrade_0_2_3.sql,
-    upgrade_0_4_0.sql, then upgrade_0_5_0.sql."""
+    upgrade_0_4_0.sql, upgrade_0_5_0.sql, then upgrade_0_5_1.sql."""
     await init_db(engine)
 
 
@@ -64,6 +81,7 @@ def ensure_schema_sync(engine) -> None:
         conn.execute(text("CREATE SCHEMA IF NOT EXISTS auth"))
         Base.metadata.create_all(bind=conn)
         _ensure_single_admin_index_sync(conn)
+        _ensure_columns_sync(conn)
 
 
 def upgrade_sql(version: str = "0.4.0") -> str:

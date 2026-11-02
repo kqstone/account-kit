@@ -11,6 +11,8 @@ export type AccountUser = {
   is_active: boolean
   approval_status: string
   has_custom_avatar?: boolean
+  /** 0.5.1: false for accounts without a user-known password (e.g. SSO-created). */
+  password_set?: boolean
   tier?: string | null
   tier_name?: string | null
   tier_badge_color?: string | null
@@ -446,6 +448,7 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         cooldown?: number
       }>
     },
+    /** With ``password_set=false`` pass ``oldPassword=""`` and the email ``code``. */
     changePassword(token: string, oldPassword: string, newPassword: string, code?: string) {
       return json(
         "/change-password",
