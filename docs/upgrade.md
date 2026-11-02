@@ -4,6 +4,39 @@
 
 ---
 
+## 升级至 0.5.1（password_set）
+
+`auth.users` 新增 `password_set BOOLEAN NOT NULL DEFAULT true`。老账号保持 `true`，行为不变。为 `false` 的账号（宿主 SSO 自动建号时写入）改密时不需要旧密码，改为强制邮箱验证码，成功后置 `true`；重置密码成功也置 `true`。`GET /me` 返回 `password_set`。
+
+迁移（幂等，`ensure_schema` / `init_db` 也会自动补列）：
+
+```sql
+-- account_kit/sql/upgrade_0_5_1.sql
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS password_set BOOLEAN NOT NULL DEFAULT true;
+```
+
+Alembic 示例：
+
+```python
+from account_kit.schema_setup import upgrade_sql
+
+def upgrade():
+    op.execute(upgrade_sql("0.5.1"))
+```
+
+宿主 SSO 建号：
+
+```python
+from account_kit import create_user
+
+user = await create_user(db, config, username=name, email=email)  # 不传 password → 随机密码，password_set=False
+# 或自己构造 User(..., password_set=False)
+```
+
+pin `account-kit==0.5.1` 与 `@kqstone/account-ui-vue` / `-react` `0.5.1`。`ProfileFields` 收到 `user.password_set === false` 时自动切换成「设置密码」表单。
+
+---
+
 ## 升级至 0.5.0（OIDC IdP）
 
 新增默认关闭的 SSO IdP 模块，以及 LoginForm 记住登录字段。未打开 `sso_idp_enabled` 的宿主行为与 0.4.1 相同：不注册新路由。`wechat_enabled=False` 时改密 / 重置 / 删用户不再访问微信表（0.4.x 即使关模块也会打表）。

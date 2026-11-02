@@ -84,6 +84,9 @@ export type ProfileLabels = {
   saving: string
   saved: string
   changePassword: string
+  /** 0.5.1: heading when the account has no password yet (``password_set=false``). */
+  setPassword: string
+  setPasswordHint: string
   oldPassword: string
   newPassword: string
   confirmPassword: string
@@ -372,6 +375,8 @@ const profileZh: ProfileLabels = {
   saving: "保存中…",
   saved: "已保存",
   changePassword: "修改密码",
+  setPassword: "设置密码",
+  setPasswordHint: "账号尚未设置密码，请通过邮箱验证码设置。",
   oldPassword: "当前密码",
   newPassword: "新密码",
   confirmPassword: "确认新密码",
@@ -421,6 +426,8 @@ const profileEn: ProfileLabels = {
   saving: "Saving…",
   saved: "Saved",
   changePassword: "Change password",
+  setPassword: "Set password",
+  setPasswordHint: "Your account has no password yet. Verify with an email code to set one.",
   oldPassword: "Current password",
   newPassword: "New password",
   confirmPassword: "Confirm new password",

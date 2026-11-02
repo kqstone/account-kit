@@ -248,7 +248,9 @@ export function ProfileFields({
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [busy, setBusy] = useState(false)
-  const showCode = passwordEmailCode === true || (passwordEmailCode === "auto" && codeNeeded)
+  // 0.5.1: account without a user-known password -> "Set password" with email code, no old password.
+  const settingPassword = user?.password_set === false
+  const showCode = settingPassword || passwordEmailCode === true || (passwordEmailCode === "auto" && codeNeeded)
 
   async function sendPasswordCode() {
     const email = user?.email
@@ -292,9 +294,9 @@ export function ProfileFields({
       onSaved?.(patched)
       if (newPassword) {
         try {
-          await client.changePassword(token, oldPassword, newPassword, emailCode.trim() || undefined)
+          await client.changePassword(token, settingPassword ? "" : oldPassword, newPassword, emailCode.trim() || undefined)
         } catch (e) {
-          if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && passwordEmailCode !== false) {
+          if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && (settingPassword || passwordEmailCode !== false)) {
             setCodeNeeded(true)
             setError(L.passwordEmailCodeHint)
             return
@@ -341,11 +343,14 @@ export function ProfileFields({
       </label>
       {showChangePassword ? (
         <>
-          <h3 style={{ margin: "8px 0 0", fontSize: 15 }}>{L.changePassword}</h3>
-          <label>
-            {L.oldPassword}
-            <input type="password" value={oldPassword} autoComplete="current-password" onChange={(event) => setOldPassword(event.target.value)} />
-          </label>
+          <h3 style={{ margin: "8px 0 0", fontSize: 15 }}>{settingPassword ? L.setPassword : L.changePassword}</h3>
+          {settingPassword ? <p className="ak-hint">{L.setPasswordHint}</p> : null}
+          {settingPassword ? null : (
+            <label>
+              {L.oldPassword}
+              <input type="password" value={oldPassword} autoComplete="current-password" onChange={(event) => setOldPassword(event.target.value)} />
+            </label>
+          )}
           <label>
             {L.newPassword}
             <input type="password" value={newPassword} autoComplete="new-password" onChange={(event) => setNewPassword(event.target.value)} />

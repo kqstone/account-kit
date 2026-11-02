@@ -66,6 +66,9 @@ class User(Base):
     # Backend access. Orthogonal to ``role``.
     is_admin = Column(Boolean, nullable=False, default=False, server_default="false")
     is_active = Column(Boolean, nullable=False, default=True, server_default="true")
+    # False for accounts created without a user-known password (e.g. SSO auto-provisioning).
+    # Such users "set" a password with an email code instead of the old password (0.5.1).
+    password_set = Column(Boolean, nullable=False, default=True, server_default="true")
     # pending | approved | rejected
     approval_status = Column(String(20), nullable=False, default="approved", server_default="approved")
     approved_at = Column(DateTime(timezone=True), nullable=True)

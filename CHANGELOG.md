@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1
+
+修复 SSO 自动建号的账号没有已知密码、无法修改密码的问题。
+
+- `auth.users` 新增 `password_set`（布尔，NOT NULL，默认 `true`）。迁移：`sql/upgrade_0_5_1.sql` / `upgrade_sql("0.5.1")`（幂等）；`ensure_schema` / `init_db` 自动补列。老账号保持 `true`。
+- 新增 `account_kit.create_user(...)`：宿主建号（如 SSO），不传 `password` 时存随机密码且 `password_set=False`；也可显式传 `password_set`。
+- `POST /change-password`：`password_set=false` 时不校验旧密码，强制邮箱验证码（`send-code` 的 `change_password` 用途），成功后置 `true`。`PATCH /me` 的 `new_password` 同规则。账号无邮箱返回 `PASSWORD_SET_EMAIL_REQUIRED`。
+- `POST /reset-password` 成功同样置 `password_set=true`。
+- `GET /me` 返回 `password_set`。
+- Vue / React `ProfileFields`：`user.password_set === false` 时标题为「设置密码」/ "Set password"，隐藏旧密码，显示邮箱验证码与发送按钮。`ChangePasswordRequest.old_password` 变为可选。向后兼容 0.5.0。
+
 ## 0.5.0
 
 可选 OIDC IdP（默认关闭）、关微信时跳过 wechat 表、LoginForm 记住登录。
