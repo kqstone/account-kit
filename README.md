@@ -9,7 +9,7 @@
 
 ---
 
-## 功能列表 (0.5.1)
+## 功能列表 (0.6.0)
 
 - **核心认证**：账号密码注册与登录、邮箱验证码流转、管理员注册审批机制、单设备互踢会话模式 (`single_device`)、自定义业务角色与用户等级目录、后台管理员权限 (`is_admin`) 隔离。
 - **两步验证 (2FA / MFA)**：基于 TOTP 标准的时间戳动态口令、应急备用恢复码、受信设备免验证保持、邮箱验证码作为备用第二因素（用于免验证器登录或紧急解绑）。
@@ -288,6 +288,31 @@ const user = await client.me(tokenStore.getAccessToken()!)
 ```
 
 ---
+
+### AuthShell / CodeInputRow (0.6.0)
+
+```tsx
+import { AuthShell, LoginForm, CodeInputRow } from "@account-kit/react";
+<AuthShell brandName="Acme" logo={<img src="/logo.svg" />} title="登录"
+  languageSwitch={<LangSwitch />} copyright="© 2026 Acme"
+  footer={<a href="/register">注册</a>}
+  headerAttrs={{ "data-tauri-drag-region": "" }}>
+  <LoginForm client={client} onSuccess={...} />
+</AuthShell>
+```
+
+```vue
+<AuthShell brand-name="Acme" title="管理员登录" variant="admin" @brand-click="goHome">
+  <template #logo><img src="/logo.svg" /></template>
+  <el-form>…</el-form>
+  <CodeInputRow v-model="code" label="验证码" button-text="发送" @button-click="send" />
+</AuthShell>
+```
+
+- 注册 / 找回密码：把 `RegisterForm` / `ResetPasswordForm` 放进默认 slot，`title` 换成对应标题即可；管理员登录用 `variant="admin"`。
+- `native`：默认 `detectNative()`（Capacitor 原生为 true），为 true 时隐藏语言切换与版权；`systemLocale(fallback)` 取系统语言。
+- 主题变量：`--ak-shell-bg`、`--ak-shell-primary`、`--ak-shell-card-bg`、`--ak-shell-card-radius`、`--ak-shell-admin-bg`、`--ak-control-height`。
+- 样式只作用于 `.ak-shell-*` / `.ak-code-*`；可视化示例见 `examples/auth-shell/`（`./build.sh` 后 `python3 visual_check.py`）。
 
 ## 升级说明 (0.2.1 → 0.2.2)
 

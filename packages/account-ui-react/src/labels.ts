@@ -411,7 +411,7 @@ const profileZh: ProfileLabels = {
   captcha: "图形验证码",
   captchaPlaceholder: "输入图中字符",
   captchaRefresh: "换一张",
-  captchaLoadFailed: "验证码加载失败，请点击换一张",
+  captchaLoadFailed: "验证码加载失败，点击重试",
 }
 
 const profileEn: ProfileLabels = {
@@ -462,7 +462,7 @@ const profileEn: ProfileLabels = {
   captcha: "Captcha",
   captchaPlaceholder: "Enter the characters",
   captchaRefresh: "New image",
-  captchaLoadFailed: "Could not load the captcha, click to retry",
+  captchaLoadFailed: "Captcha failed to load, click to retry",
 }
 
 const formZh: FormLabels = {
@@ -492,10 +492,10 @@ const formZh: FormLabels = {
   captcha: "图形验证码",
   captchaPlaceholder: "输入图中字符",
   captchaRefresh: "换一张",
-  captchaLoadFailed: "验证码加载失败，请点击换一张",
+  captchaLoadFailed: "验证码加载失败，点击重试",
   captchaEnter: "请输入图形验证码",
-  captchaInvalid: "图形验证码错误或已失效，请重试",
-  alreadyLoggedIn: "该账号已在{device}登录，再次提交将挤掉该设备",
+  captchaInvalid: "图形验证码错误，请重试",
+  alreadyLoggedIn: "已在{device}登录，再次提交将其下线",
   error: "请求失败",
   errors: { ...defaultErrorLabels["zh-CN"] },
 }
@@ -527,24 +527,24 @@ const formEn: FormLabels = {
   captcha: "Captcha",
   captchaPlaceholder: "Enter the characters",
   captchaRefresh: "New image",
-  captchaLoadFailed: "Could not load the captcha, click to retry",
+  captchaLoadFailed: "Captcha failed to load, click to retry",
   captchaEnter: "Please enter the captcha",
-  captchaInvalid: "Captcha is wrong or expired, please retry",
-  alreadyLoggedIn: "This account is signed in on {device}. Submit again to replace that session.",
+  captchaInvalid: "Wrong captcha, please retry",
+  alreadyLoggedIn: "Signed in on {device}. Submit again to sign it out.",
   error: "Request failed",
   errors: { ...defaultErrorLabels.en },
 }
 
 const wechatZh: WechatLabels = {
   title: "微信扫码登录",
-  hint: "请使用微信扫描小程序码，在手机上确认登录。",
+  hint: "微信扫码，在手机上确认登录",
   scanned: "已扫码，请在手机上确认",
   refresh: "刷新二维码",
   expired: "二维码已过期",
   waiting: "等待扫码…",
   expiresIn: "{s} 秒后过期",
   notConfigured: "微信登录未配置",
-  unboundHint: "该微信尚未绑定账号，请在下方绑定已有账号或注册新账号。",
+  unboundHint: "该微信未绑定账号，请绑定或注册",
   bindExisting: "绑定已有账号",
   registerTab: "注册新账号",
   bound: "已绑定微信",

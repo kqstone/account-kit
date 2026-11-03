@@ -32,7 +32,7 @@ type TestClient = ReturnType<typeof mockClient>
 
 async function reachBindForm(client: TestClient) {
   render(<WechatQrLogin client={client as unknown as AccountClient} pollMs={500} onSuccess={() => undefined} />)
-  await screen.findByText("该微信尚未绑定账号，请在下方绑定已有账号或注册新账号。", {}, { timeout: 3000 })
+  await screen.findByText("该微信未绑定账号，请绑定或注册", {}, { timeout: 3000 })
 }
 
 function bindForm() {
@@ -93,7 +93,7 @@ describe("WechatQrLogin bind-existing captcha", () => {
     })
     await waitFor(() => expect(client.captcha).toHaveBeenCalledTimes(3))
     expect((screen.getByAltText("captcha") as HTMLImageElement).src).toContain("img3")
-    expect(screen.getByText("图形验证码错误或已失效，请重试")).toBeTruthy()
+    expect(screen.getByText("图形验证码错误，请重试")).toBeTruthy()
 
     fireEvent.change(screen.getByPlaceholderText("输入图中字符"), { target: { value: "ABCD" } })
     fireEvent.submit(bindForm())

@@ -1,5 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type AccountUser, type CodeSentResult } from "./client"
+import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { interpolate, messageOf, textOf, type DeepPartial } from "./utils"
@@ -162,14 +163,18 @@ export const ChangeEmailForm = defineComponent({
         [
           props.user?.email ? h("p", { class: "ak-muted" }, `${labels.currentEmail}: ${props.user.email}`) : null,
           h("label", [labels.newEmail, h("input", { type: "email", value: newEmail.value, autocomplete: "email", onInput: (e: Event) => { newEmail.value = textOf(e) } })]),
-          h("div", { class: "ak-row" }, [
-            h("input", { class: "ak-input", value: code.value, maxlength: 6, inputmode: "numeric", placeholder: labels.emailCodePlaceholder, onInput: (e: Event) => { code.value = textOf(e) } }),
-            h(
-              "button",
-              { type: "button", disabled: sending.value || left.value > 0 || !newEmail.value.trim(), onClick: () => void sendCode() },
-              sending.value ? labels.sending : left.value > 0 ? interpolate(labels.resendIn, { s: left.value }) : labels.sendCode,
-            ),
-          ]),
+          h(CodeInputRow, {
+            label: labels.emailCode,
+            modelValue: code.value,
+            maxlength: 6,
+            inputmode: "numeric",
+            autocomplete: "one-time-code",
+            placeholder: labels.emailCodePlaceholder,
+            buttonText: sending.value ? labels.sending : left.value > 0 ? interpolate(labels.resendIn, { s: left.value }) : labels.sendCode,
+            buttonDisabled: sending.value || left.value > 0 || !newEmail.value.trim(),
+            "onUpdate:modelValue": (v: string) => { code.value = v },
+            onButtonClick: () => void sendCode(),
+          }),
           props.requirePassword
             ? h("label", [labels.oldPassword, h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (e: Event) => { password.value = textOf(e) } })])
             : null,

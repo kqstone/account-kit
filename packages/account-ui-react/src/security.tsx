@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState, forwardRef, type FormEvent, type ReactNode } from "react"
 import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
+import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { interpolate, messageOf, type DeepPartial } from "./utils"
@@ -176,12 +177,18 @@ export function ChangeEmailForm({
         {L.newEmail}
         <input type="email" value={newEmail} autoComplete="email" onChange={(event) => setNewEmail(event.target.value)} />
       </label>
-      <div className="ak-row">
-        <input className="ak-input" value={code} maxLength={6} inputMode="numeric" placeholder={L.emailCodePlaceholder} onChange={(event) => setCode(event.target.value)} />
-        <button type="button" disabled={sending || left > 0 || !newEmail.trim()} onClick={() => void sendCode()}>
-          {sending ? L.sending : left > 0 ? interpolate(L.resendIn, { s: left }) : L.sendCode}
-        </button>
-      </div>
+      <CodeInputRow
+        label={L.emailCode}
+        value={code}
+        maxLength={6}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        placeholder={L.emailCodePlaceholder}
+        onChange={setCode}
+        buttonText={sending ? L.sending : left > 0 ? interpolate(L.resendIn, { s: left }) : L.sendCode}
+        buttonDisabled={sending || left > 0 || !newEmail.trim()}
+        onButtonClick={() => void sendCode()}
+      />
       {requirePassword ? (
         <label>
           {L.oldPassword}

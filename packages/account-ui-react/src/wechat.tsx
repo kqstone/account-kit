@@ -12,6 +12,7 @@ import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, resolveWechatLabels, type FormLabels, type WechatLabels } from "./labels"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
 import { TwoFactorLoginDialog } from "./twoFactor"
+import { CodeInputRow } from "./authShell"
 import { formatError, interpolate, type DeepPartial } from "./utils"
 
 function imageSrc(data: WechatStartResult) {
@@ -296,23 +297,16 @@ export function WechatQrLogin({
                 <input type="password" value={password} autoComplete="current-password" onChange={(e) => setPassword(e.target.value)} />
               </label>
               {captchaNeeded ? (
-                <label className="ak-field">
-                  {F.captcha}
-                  <span className="ak-row">
-                    <input
-                      value={captchaCode}
-                      autoComplete="off"
-                      placeholder={F.captchaPlaceholder}
-                      onChange={(e) => setCaptchaCode(e.target.value)}
-                    />
-                    {captchaImage ? (
-                      <img src={captchaImage} alt="captcha" style={{ height: 36, cursor: "pointer" }} onClick={() => void loadCaptcha()} />
-                    ) : null}
-                    <button type="button" onClick={() => void loadCaptcha()}>
-                      {F.captchaRefresh}
-                    </button>
-                  </span>
-                </label>
+                <CodeInputRow
+                  label={F.captcha}
+                  value={captchaCode}
+                  placeholder={F.captchaPlaceholder}
+                  onChange={setCaptchaCode}
+                  imageSrc={captchaImage || undefined}
+                  onImageClick={() => void loadCaptcha()}
+                  buttonText={F.captchaRefresh}
+                  onButtonClick={() => void loadCaptcha()}
+                />
               ) : null}
               {error ? <p className="ak-error">{error}</p> : null}
               <button type="submit" disabled={busy}>
@@ -333,15 +327,17 @@ export function WechatQrLogin({
                 {F.password}
                 <input type="password" value={password} autoComplete="new-password" onChange={(e) => setPassword(e.target.value)} />
               </label>
-              <div className="ak-row">
-                <label className="ak-field">
-                  {F.code}
-                  <input value={code} maxLength={6} inputMode="numeric" onChange={(e) => setCode(e.target.value)} />
-                </label>
-                <button type="button" disabled={sending} onClick={() => void sendRegisterCode()}>
-                  {sending ? F.sending : F.sendCode}
-                </button>
-              </div>
+              <CodeInputRow
+                label={F.code}
+                value={code}
+                maxLength={6}
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                onChange={setCode}
+                buttonText={sending ? F.sending : F.sendCode}
+                buttonDisabled={sending}
+                onButtonClick={() => void sendRegisterCode()}
+              />
               {error ? <p className="ak-error">{error}</p> : null}
               <button type="submit" disabled={busy}>
                 {busy ? F.submitting : F.register}

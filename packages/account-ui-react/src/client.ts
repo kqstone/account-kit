@@ -1,3 +1,4 @@
+import { CODE_ROW_CSS } from "./shellStyle"
 export type AccountUser = {
   id: string
   username: string
@@ -698,6 +699,6 @@ export function ensureAccountStyle() {
 .ak-tabs{display:flex;gap:8px;flex-wrap:wrap}
 .ak-tab{padding:6px 12px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:14px;color:#344054}
 .ak-tab-active{border-color:#1677ff;color:#1677ff;background:#eff6ff}
-`
+` + CODE_ROW_CSS
   document.head.appendChild(style)
 }

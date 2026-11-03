@@ -1,5 +1,6 @@
 import { computed, defineComponent, h, onMounted, ref, type PropType } from "vue"
 import { AccountApiError, ensureAccountStyle, type AccountClient } from "./client"
+import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, type FormLabels } from "./labels"
 import { formatError, interpolate, textOf, type DeepPartial } from "./utils"
@@ -159,28 +160,16 @@ export const LoginForm = defineComponent({
             }),
           ),
           captchaNeeded.value
-            ? field(
-                L.value.captcha,
-                h("span", { class: "ak-row" }, [
-                  h("input", {
-                    value: captchaCode.value,
-                    autocomplete: "off",
-                    placeholder: L.value.captchaPlaceholder,
-                    onInput: (event: Event) => {
-                      captchaCode.value = textOf(event)
-                    },
-                  }),
-                  captchaImage.value
-                    ? h("img", {
-                        src: captchaImage.value,
-                        alt: "captcha",
-                        style: "height:36px;cursor:pointer",
-                        onClick: () => void loadCaptcha(),
-                      })
-                    : null,
-                  h("button", { type: "button", onClick: () => void loadCaptcha() }, L.value.captchaRefresh),
-                ]),
-              )
+            ? h(CodeInputRow, {
+                label: L.value.captcha,
+                modelValue: captchaCode.value,
+                placeholder: L.value.captchaPlaceholder,
+                imageSrc: captchaImage.value || "",
+                buttonText: L.value.captchaRefresh,
+                "onUpdate:modelValue": (v: string) => { captchaCode.value = v },
+                onImageClick: () => void loadCaptcha(),
+                onButtonClick: () => void loadCaptcha(),
+              })
             : null,
           slots.default?.(),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
@@ -292,10 +281,7 @@ export const RegisterForm = defineComponent({
             ]),
           ),
           field(L.value.birthOptional, h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })),
-          h("div", { class: "ak-row" }, [
-            field(L.value.code, h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
-            h("button", { type: "button", disabled: sending.value, onClick: () => void sendCode() }, sending.value ? L.value.sending : L.value.sendCode),
-          ]),
+          h(CodeInputRow, { label: L.value.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: sending.value ? L.value.sending : L.value.sendCode, buttonDisabled: sending.value, "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendCode() }),
           roles.value.length
             ? field(
                 L.value.role,
@@ -370,10 +356,7 @@ export const ResetPasswordForm = defineComponent({
         },
         [
           field(L.value.email, h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
-          h("div", { class: "ak-row" }, [
-            field(L.value.code, h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
-            h("button", { type: "button", disabled: sending.value, onClick: () => void sendCode() }, sending.value ? L.value.sending : L.value.sendCode),
-          ]),
+          h(CodeInputRow, { label: L.value.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: sending.value ? L.value.sending : L.value.sendCode, buttonDisabled: sending.value, "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendCode() }),
           field(L.value.newPassword, h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
           h("button", { type: "submit", disabled: busy.value }, busy.value ? L.value.submitting : L.value.resetPassword),

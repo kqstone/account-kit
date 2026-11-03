@@ -1,5 +1,6 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
+import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { errorCodeOf, initialsOf, interpolate, messageOf, textOf, type DeepPartial } from "./utils"
@@ -352,17 +353,18 @@ export const ProfileFields = defineComponent({
                 h("label", [labels.newPassword, h("input", { type: "password", value: newPassword.value, autocomplete: "new-password", onInput: (event: Event) => { newPassword.value = textOf(event) } })]),
                 h("label", [labels.confirmPassword, h("input", { type: "password", value: confirmPassword.value, autocomplete: "new-password", onInput: (event: Event) => { confirmPassword.value = textOf(event) } })]),
                 showCode()
-                  ? h("label", [
-                      labels.emailCode,
-                      h("span", { class: "ak-row" }, [
-                        h("input", { class: "ak-input", value: emailCode.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", placeholder: labels.emailCodePlaceholder, onInput: (event: Event) => { emailCode.value = textOf(event) } }),
-                        h(
-                          "button",
-                          { type: "button", disabled: sending.value || cooldown.value > 0 || !props.user?.email, onClick: () => void sendPasswordCode() },
-                          sending.value ? labels.sending : cooldown.value > 0 ? interpolate(labels.resendIn, { s: cooldown.value }) : labels.sendCode,
-                        ),
-                      ]),
-                    ])
+                  ? h(CodeInputRow, {
+                      label: labels.emailCode,
+                      modelValue: emailCode.value,
+                      maxlength: 6,
+                      inputmode: "numeric",
+                      autocomplete: "one-time-code",
+                      placeholder: labels.emailCodePlaceholder,
+                      buttonText: sending.value ? labels.sending : cooldown.value > 0 ? interpolate(labels.resendIn, { s: cooldown.value }) : labels.sendCode,
+                      buttonDisabled: sending.value || cooldown.value > 0 || !props.user?.email,
+                      "onUpdate:modelValue": (v: string) => { emailCode.value = v },
+                      onButtonClick: () => void sendPasswordCode(),
+                    })
                   : null,
               ]
             : null,

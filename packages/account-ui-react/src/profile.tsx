@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react"
 import { ensureAccountStyle, type AccountClient, type AccountUser, type ProfileUpdateResult } from "./client"
+import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
 import { useCountdown } from "./security"
@@ -360,23 +361,18 @@ export function ProfileFields({
             <input type="password" value={confirmPassword} autoComplete="new-password" onChange={(event) => setConfirmPassword(event.target.value)} />
           </label>
           {showCode ? (
-            <label>
-              {L.emailCode}
-              <span className="ak-row">
-                <input
-                  className="ak-input"
-                  value={emailCode}
-                  maxLength={6}
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  placeholder={L.emailCodePlaceholder}
-                  onChange={(event) => setEmailCode(event.target.value)}
-                />
-                <button type="button" disabled={sending || cooldown > 0 || !user?.email} onClick={() => void sendPasswordCode()}>
-                  {sending ? L.sending : cooldown > 0 ? interpolate(L.resendIn, { s: cooldown }) : L.sendCode}
-                </button>
-              </span>
-            </label>
+            <CodeInputRow
+              label={L.emailCode}
+              value={emailCode}
+              maxLength={6}
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              placeholder={L.emailCodePlaceholder}
+              onChange={setEmailCode}
+              buttonText={sending ? L.sending : cooldown > 0 ? interpolate(L.resendIn, { s: cooldown }) : L.sendCode}
+              buttonDisabled={sending || cooldown > 0 || !user?.email}
+              onButtonClick={() => void sendPasswordCode()}
+            />
           ) : null}
         </>
       ) : null}
