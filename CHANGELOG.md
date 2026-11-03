@@ -12,6 +12,10 @@
 
 **DOM 变化**：验证码行原为 `<div class="ak-row"><label>验证码<input/></label><button/></div>`，现为 `<div class="ak-field ak-code-field"><label class="ak-field-label"/><div class="ak-code-row ak-row"><input class="ak-input ak-code-input"/><button class="ak-code-btn"/></div></div>`。
 
+**行为变化（宿主请留意）**
+- 默认文案调整：`alreadyLoggedIn`、`captchaInvalid`、`captchaLoadFailed` 及微信 `hint`/`unboundHint`（见各包 `labels.ts`），键名不变，可用 labels 覆盖还原。
+- 旧表单验证码行 DOM 改为 CodeInputRow（label 移到行外），控件高度固定 40px（`--ak-control-height`）；`ensureAccountStyle` 会追加注入 `CODE_ROW_CSS`。针对旧 `.ak-row` 结构写自定义样式的宿主可能受影响。
+
 **dental 升级需删除的覆盖**（`apps/web/src/App.css`，0.6.0 已内置等价样式，保留会冲突）：
 - 约 215–300 行整段 `.ak-row` 修补：`.ak-form/.ak-field/.ak-dialog .ak-row`、`.ak-form .ak-row`、`.ak-row input / .ak-input / > label`、`.ak-row img / button`、`.ak-form .ak-row button`、`.ak-form .ak-row img` 及其 `@media` 内 `.ak-form .ak-row`。
 - 约 917 行 `.ak-form .ak-row > label input / .ak-input`（label 已不再包裹 input）。
