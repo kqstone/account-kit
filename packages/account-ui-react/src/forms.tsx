@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from "react"
 import { AccountApiError, ensureAccountStyle, type AccountClient, type AccountUser, type TokenPair } from "./client"
+import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, type FormLabels } from "./labels"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
@@ -135,23 +136,16 @@ export function LoginForm({
         <input name="password" type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
       </label>
       {captchaNeeded ? (
-        <label>
-          {L.captcha}
-          <span className="ak-row">
-            <input
-              value={captchaCode}
-              autoComplete="off"
-              placeholder={L.captchaPlaceholder}
-              onChange={(event) => setCaptchaCode(event.target.value)}
-            />
-            {captchaImage ? (
-              <img src={captchaImage} alt="captcha" style={{ height: 36, cursor: "pointer" }} onClick={() => void loadCaptcha()} />
-            ) : null}
-            <button type="button" onClick={() => void loadCaptcha()}>
-              {L.captchaRefresh}
-            </button>
-          </span>
-        </label>
+        <CodeInputRow
+          label={L.captcha}
+          value={captchaCode}
+          placeholder={L.captchaPlaceholder}
+          onChange={setCaptchaCode}
+          imageSrc={captchaImage || undefined}
+          onImageClick={() => void loadCaptcha()}
+          buttonText={L.captchaRefresh}
+          onButtonClick={() => void loadCaptcha()}
+        />
       ) : null}
       {children}
       {error ? <p className="ak-error">{error}</p> : null}
@@ -276,15 +270,17 @@ export function RegisterForm({
         {L.birthOptional}
         <input type="month" value={birth} onChange={(event) => setBirth(event.target.value)} />
       </label>
-      <div className="ak-row">
-        <label>
-          {L.code}
-          <input value={code} maxLength={6} inputMode="numeric" onChange={(event) => setCode(event.target.value)} />
-        </label>
-        <button type="button" disabled={sending} onClick={() => void sendCode()}>
-          {sending ? L.sending : L.sendCode}
-        </button>
-      </div>
+      <CodeInputRow
+        label={L.code}
+        value={code}
+        maxLength={6}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        onChange={setCode}
+        buttonText={sending ? L.sending : L.sendCode}
+        buttonDisabled={sending}
+        onButtonClick={() => void sendCode()}
+      />
       {roles.length ? (
         <label>
           {L.role}
@@ -360,15 +356,17 @@ export function ResetPasswordForm({
         {L.email}
         <input type="email" value={email} autoComplete="email" onChange={(event) => setEmail(event.target.value)} />
       </label>
-      <div className="ak-row">
-        <label>
-          {L.code}
-          <input value={code} maxLength={6} inputMode="numeric" onChange={(event) => setCode(event.target.value)} />
-        </label>
-        <button type="button" disabled={sending} onClick={() => void sendCode()}>
-          {sending ? L.sending : L.sendCode}
-        </button>
-      </div>
+      <CodeInputRow
+        label={L.code}
+        value={code}
+        maxLength={6}
+        inputMode="numeric"
+        autoComplete="one-time-code"
+        onChange={setCode}
+        buttonText={sending ? L.sending : L.sendCode}
+        buttonDisabled={sending}
+        onButtonClick={() => void sendCode()}
+      />
       <label>
         {L.newPassword}
         <input type="password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />

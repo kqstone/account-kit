@@ -8,6 +8,7 @@ import {
   type WechatBindStatus,
   type WechatStartResult,
 } from "./client"
+import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, resolveWechatLabels, type FormLabels, type WechatLabels } from "./labels"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
@@ -290,28 +291,16 @@ export const WechatQrLogin = defineComponent({
               field(forms.username, h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
               field(forms.password, h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (event: Event) => { password.value = textOf(event) } })),
               captchaNeeded.value
-                ? field(
-                    forms.captcha,
-                    h("span", { class: "ak-row" }, [
-                      h("input", {
-                        value: captchaCode.value,
-                        autocomplete: "off",
-                        placeholder: forms.captchaPlaceholder,
-                        onInput: (event: Event) => {
-                          captchaCode.value = textOf(event)
-                        },
-                      }),
-                      captchaImage.value
-                        ? h("img", {
-                            src: captchaImage.value,
-                            alt: "captcha",
-                            style: "height:36px;cursor:pointer",
-                            onClick: () => void loadCaptcha(),
-                          })
-                        : null,
-                      h("button", { type: "button", onClick: () => void loadCaptcha() }, forms.captchaRefresh),
-                    ]),
-                  )
+                ? h(CodeInputRow, {
+                    label: forms.captcha,
+                    modelValue: captchaCode.value,
+                    placeholder: forms.captchaPlaceholder,
+                    imageSrc: captchaImage.value || "",
+                    buttonText: forms.captchaRefresh,
+                    "onUpdate:modelValue": (v: string) => { captchaCode.value = v },
+                    onImageClick: () => void loadCaptcha(),
+                    onButtonClick: () => void loadCaptcha(),
+                  })
                 : null,
               error.value ? h("p", { class: "ak-error" }, error.value) : null,
               h("button", { type: "submit", disabled: busy.value }, busy.value ? forms.loggingIn : bindForce.value ? forms.forceLogin : labels.bindExisting),
@@ -323,10 +312,7 @@ export const WechatQrLogin = defineComponent({
               field(forms.username, h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
               field(forms.email, h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
               field(forms.password, h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
-              h("div", { class: "ak-row" }, [
-                field(forms.code, h("input", { value: code.value, maxlength: 6, inputmode: "numeric", onInput: (event: Event) => { code.value = textOf(event) } })),
-                h("button", { type: "button", disabled: sending.value, onClick: () => void sendRegisterCode() }, sending.value ? forms.sending : forms.sendCode),
-              ]),
+              h(CodeInputRow, { label: forms.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: sending.value ? forms.sending : forms.sendCode, buttonDisabled: sending.value, "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendRegisterCode() }),
               error.value ? h("p", { class: "ak-error" }, error.value) : null,
               h("button", { type: "submit", disabled: busy.value }, busy.value ? forms.submitting : forms.register),
             ]),

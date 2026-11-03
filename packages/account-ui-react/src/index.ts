@@ -68,3 +68,6 @@ export {
 } from "./trustedDevice"
 export { TwoFactorLoginDialog, TwoFactorSettings } from "./twoFactor"
 export { WechatBindSettings, WechatQrLogin } from "./wechat"
+export { AuthShell, CodeInputRow } from "./authShell"
+export type { AuthShellProps, CodeInputRowProps } from "./authShell"
+export { CODE_ROW_CSS, detectNative, ensureShellStyle, SHELL_CSS, systemLocale } from "./shellStyle"

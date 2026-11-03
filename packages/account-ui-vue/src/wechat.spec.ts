@@ -106,7 +106,7 @@ describe("WechatQrLogin bind-existing captcha", () => {
     )
     expect(client.captcha).toHaveBeenCalledTimes(3)
     expect(wrapper.find('img[alt="captcha"]').attributes("src")).toContain("img3")
-    expect(wrapper.text()).toContain("图形验证码错误或已失效")
+    expect(wrapper.text()).toContain("图形验证码错误，请重试")
 
     await wrapper.find('input[placeholder="输入图中字符"]').setValue("ABCD")
     await wrapper.find("form.ak-form").trigger("submit")

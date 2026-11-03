@@ -7,7 +7,7 @@ from account_kit.schema_setup import ensure_schema, ensure_schema_sync, init_db
 from account_kit.seed import seed_defaults
 from account_kit.service import create_user
 
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 __all__ = [
     "AccountError",
