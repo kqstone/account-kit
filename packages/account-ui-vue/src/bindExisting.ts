@@ -5,7 +5,7 @@ export type BindExistingSuccessExtra = { tokens?: TokenPair; username?: string }
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, resolveSsoLabels, type FormLabels, type SsoLabels } from "./labels"
-import { getMfaChallenge, type MfaChallenge } from "./mfa"
+import { errorCodeOf, getMfaChallenge, type MfaChallenge } from "./mfa"
 import { TwoFactorLoginDialog, type TwoFactorVerifyPayload } from "./twoFactor"
 import { formatError, interpolate, textOf, type DeepPartial } from "./utils"
 
@@ -49,6 +49,7 @@ export const BindExistingAccountForm = defineComponent({
     const mfa = ref<(MfaChallenge & { username?: string }) | null>(null)
     const reclaim = ref(false)
     const orphanUsername = ref("")
+    const passedChallengeToken = ref("")
 
     async function loadCaptcha() {
       captchaId.value = ""
@@ -77,6 +78,7 @@ export const BindExistingAccountForm = defineComponent({
         recoveryCode: extra.recoveryCode,
         emailCode: extra.emailCode,
         reclaim: reclaim.value || extra.reclaim,
+        challengeToken: extra.challengeToken || passedChallengeToken.value || undefined,
       }
     }
 
@@ -108,7 +110,7 @@ export const BindExistingAccountForm = defineComponent({
             : null
         const info = detail && typeof detail === "object" ? detail : null
         const status = err instanceof AccountApiError ? err.status : 0
-        const code = info?.code || (err instanceof AccountApiError ? err.code : "")
+        const code = info?.code || (err instanceof AccountApiError ? err.code : "") || ""
         if (usedCaptcha) captchaNeeded.value = false
         if (status === 428 || code === "CAPTCHA_REQUIRED" || code === "CAPTCHA_INVALID" || info?.captcha_required) {
           captchaNeeded.value = true
@@ -125,19 +127,13 @@ export const BindExistingAccountForm = defineComponent({
           error.value = interpolate(F.value.alreadyLoggedIn, {
             device: info?.device_name || F.value.errors.UNKNOWN_DEVICE,
           })
-        } else if (props.allowReclaim && (status === 409 || status === 400) && code === "SSO_ORPHAN_PENDING") {
-          reclaim.value = true
-          const orphan =
-            String(info?.orphan_username || "") ||
-            (err instanceof AccountApiError && err.body && typeof err.body === "object"
-              ? String((err.body as { params?: { orphan_username?: string } }).params?.orphan_username || "")
-              : "")
-          orphanUsername.value = orphan
-          error.value = interpolate(S.value.reclaimHint, { username: orphan || "—" })
+        } else if (applyOrphanPending(err, info, code, status)) {
+          /* reclaim confirm on the form */
         } else {
           const challenge = getMfaChallenge(err)
           if (challenge) {
             mfa.value = { ...challenge, bindTicket: challenge.bindTicket || props.bindTicket, username: username.value }
+            if (challenge.challengeToken) passedChallengeToken.value = challenge.challengeToken
             return
           }
           error.value = formatError(err, F.value, locale.value)
@@ -147,7 +143,28 @@ export const BindExistingAccountForm = defineComponent({
       }
     }
 
+    function applyOrphanPending(
+      err: unknown,
+      info: { orphan_username?: string } | null,
+      code: string,
+      status: number,
+    ) {
+      if (!props.allowReclaim || (status !== 409 && status !== 400) || code !== "SSO_ORPHAN_PENDING") return false
+      reclaim.value = true
+      const orphan =
+        String(info?.orphan_username || "") ||
+        (err instanceof AccountApiError && err.body && typeof err.body === "object"
+          ? String((err.body as { params?: { orphan_username?: string } }).params?.orphan_username || "")
+          : "")
+      orphanUsername.value = orphan
+      error.value = interpolate(S.value.reclaimHint, { username: orphan || "—" })
+      mfa.value = null
+      return true
+    }
+
     async function verifyMfa(fields: TwoFactorVerifyPayload) {
+      if (fields.challengeToken) passedChallengeToken.value = fields.challengeToken
+      if (fields.force) bindForce.value = true
       return props.bindExisting(
         payload({
           code: fields.code,
@@ -155,8 +172,21 @@ export const BindExistingAccountForm = defineComponent({
           emailCode: fields.emailCode,
           force: fields.force,
           deviceName: fields.deviceName || props.deviceName,
+          challengeToken: fields.challengeToken,
         }),
       )
+    }
+
+    function handleMfaOuterError(err: unknown) {
+      const status = err instanceof AccountApiError ? err.status : 0
+      const code = errorCodeOf(err) || (err instanceof AccountApiError ? err.code : "") || ""
+      const body = err instanceof AccountApiError ? err.body : null
+      const detail =
+        body && typeof body === "object" && "detail" in body
+          ? (body as { detail?: { orphan_username?: string } | string }).detail
+          : null
+      const info = detail && typeof detail === "object" ? detail : null
+      return applyOrphanPending(err, info, code, status)
     }
 
     return () => {
@@ -228,6 +258,7 @@ export const BindExistingAccountForm = defineComponent({
             force: bindForce.value || props.force,
             language: locale.value,
             verify: props.completeMfaViaLogin2fa ? undefined : verifyMfa,
+            handleError: handleMfaOuterError,
             onSuccess: (data: TokenPair) => {
               mfa.value = null
               emit("success", data.access_token, { tokens: data, username: username.value })

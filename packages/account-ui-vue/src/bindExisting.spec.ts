@@ -140,7 +140,97 @@ describe("BindExistingAccountForm", () => {
       username: "carol",
       password: "secret1",
       code: "123456",
+      challengeToken: "ch-1",
     })
+    wrapper.unmount()
+  })
+
+  it("2FA then 409 ALREADY_LOGGED_IN force retry sends the same challengeToken without a code", async () => {
+    const client = mockClient()
+    const bindExisting = vi
+      .fn()
+      .mockRejectedValueOnce(
+        apiError(401, "MFA_REQUIRED", { challenge_token: "ch-1", bind_ticket: "tk-1", expires_in: 300 }),
+      )
+      .mockRejectedValueOnce(apiError(409, "ALREADY_LOGGED_IN", { device_name: "iPad" }))
+      .mockResolvedValueOnce({ access_token: "tok", token_type: "bearer" })
+    const wrapper = mount(BindExistingAccountForm, {
+      props: {
+        client: client as unknown as AccountClient,
+        bindTicket: "tk-1",
+        bindExisting,
+        completeMfaViaLogin2fa: false,
+      },
+    })
+    await fillAndSubmit(wrapper)
+    await vi.waitFor(() => {
+      expect(wrapper.find('input[placeholder="000000"]').exists()).toBe(true)
+    })
+    await wrapper.find('input[placeholder="000000"]').setValue("123456")
+    await flushPromises()
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain("强制登录")
+    })
+    await wrapper.findAll("button").find((b) => b.text() === "强制登录")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.emitted("success")).toBeTruthy()
+    expect(bindExisting.mock.calls[1][0]).toMatchObject({
+      bindTicket: "tk-1",
+      code: "123456",
+      challengeToken: "ch-1",
+    })
+    expect(bindExisting.mock.calls[2][0]).toMatchObject({
+      bindTicket: "tk-1",
+      challengeToken: "ch-1",
+      force: true,
+    })
+    expect(bindExisting.mock.calls[2][0].code || "").toBe("")
+    wrapper.unmount()
+  })
+
+  it("2FA then 409 SSO_ORPHAN_PENDING shows reclaim and resubmits with the same challengeToken", async () => {
+    const client = mockClient()
+    const bindExisting = vi
+      .fn()
+      .mockRejectedValueOnce(
+        apiError(401, "MFA_REQUIRED", { challenge_token: "ch-1", bind_ticket: "tk-1", expires_in: 300 }),
+      )
+      .mockRejectedValueOnce(apiError(409, "SSO_ORPHAN_PENDING", { orphan_username: "ghost" }))
+      .mockResolvedValueOnce({ access_token: "tok", token_type: "bearer" })
+    const wrapper = mount(BindExistingAccountForm, {
+      props: {
+        client: client as unknown as AccountClient,
+        bindTicket: "tk-1",
+        bindExisting,
+        allowReclaim: true,
+        completeMfaViaLogin2fa: false,
+      },
+    })
+    await fillAndSubmit(wrapper, "olduser")
+    await vi.waitFor(() => {
+      expect(wrapper.find('input[placeholder="000000"]').exists()).toBe(true)
+    })
+    await wrapper.find('input[placeholder="000000"]').setValue("123456")
+    await flushPromises()
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain("待审空号 ghost")
+    })
+    expect(wrapper.find("form.ak-form button").text()).toBe("确认改绑")
+    await wrapper.find("form.ak-form").trigger("submit")
+    await flushPromises()
+    expect(wrapper.emitted("success")).toBeTruthy()
+    expect(bindExisting.mock.calls[1][0]).toMatchObject({
+      bindTicket: "tk-1",
+      code: "123456",
+      challengeToken: "ch-1",
+    })
+    expect(bindExisting.mock.calls[2][0]).toMatchObject({
+      reclaim: true,
+      challengeToken: "ch-1",
+      username: "olduser",
+      bindTicket: "tk-1",
+    })
+    expect(bindExisting.mock.calls[2][0].code || "").toBe("")
     wrapper.unmount()
   })
 

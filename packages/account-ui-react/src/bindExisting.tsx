@@ -3,7 +3,7 @@ import { AccountApiError, ensureAccountStyle, type AccountClient, type BindExist
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, resolveSsoLabels, type FormLabels, type SsoLabels } from "./labels"
-import { getMfaChallenge, type MfaChallenge } from "./mfa"
+import { errorCodeOf, getMfaChallenge, type MfaChallenge } from "./mfa"
 import { TwoFactorLoginDialog, type TwoFactorVerifyPayload } from "./twoFactor"
 import { formatError, interpolate, type DeepPartial } from "./utils"
 
@@ -60,6 +60,7 @@ export function BindExistingAccountForm({
   const [mfa, setMfa] = useState<(MfaChallenge & { username?: string }) | null>(null)
   const [reclaim, setReclaim] = useState(false)
   const [orphanUsername, setOrphanUsername] = useState("")
+  const [passedChallengeToken, setPassedChallengeToken] = useState("")
 
   async function loadCaptcha() {
     setCaptchaId("")
@@ -88,6 +89,7 @@ export function BindExistingAccountForm({
       recoveryCode: extra.recoveryCode,
       emailCode: extra.emailCode,
       reclaim: reclaim || extra.reclaim,
+      challengeToken: extra.challengeToken || passedChallengeToken || undefined,
     }
   }
 
@@ -119,7 +121,7 @@ export function BindExistingAccountForm({
           : null
       const info = detail && typeof detail === "object" ? detail : null
       const status = err instanceof AccountApiError ? err.status : 0
-      const code = info?.code || (err instanceof AccountApiError ? err.code : "")
+      const code = info?.code || (err instanceof AccountApiError ? err.code : "") || ""
       if (usedCaptcha) setCaptchaNeeded(false)
       if (status === 428 || code === "CAPTCHA_REQUIRED" || code === "CAPTCHA_INVALID" || info?.captcha_required) {
         setCaptchaNeeded(true)
@@ -135,15 +137,13 @@ export function BindExistingAccountForm({
         setBindForce(true)
         onConflict?.(err)
         setError(interpolate(F.alreadyLoggedIn, { device: info?.device_name || F.errors.UNKNOWN_DEVICE }))
-      } else if (allowReclaim && (status === 409 || status === 400) && code === "SSO_ORPHAN_PENDING") {
-        setReclaim(true)
-        const orphan = String(info?.orphan_username || errorParamsUsername(err) || "")
-        setOrphanUsername(orphan)
-        setError(interpolate(S.reclaimHint, { username: orphan || "—" }))
+      } else if (applyOrphanPending(err, info, code, status)) {
+        /* reclaim confirm on the form */
       } else {
         const challenge = getMfaChallenge(err)
         if (challenge) {
           setMfa({ ...challenge, bindTicket: challenge.bindTicket || bindTicket, username })
+          if (challenge.challengeToken) setPassedChallengeToken(challenge.challengeToken)
           return
         }
         setError(formatError(err, F, locale))
@@ -153,7 +153,24 @@ export function BindExistingAccountForm({
     }
   }
 
+  function applyOrphanPending(
+    err: unknown,
+    info: { orphan_username?: string } | null,
+    code: string,
+    status: number,
+  ) {
+    if (!allowReclaim || (status !== 409 && status !== 400) || code !== "SSO_ORPHAN_PENDING") return false
+    setReclaim(true)
+    const orphan = String(info?.orphan_username || errorParamsUsername(err) || "")
+    setOrphanUsername(orphan)
+    setError(interpolate(S.reclaimHint, { username: orphan || "—" }))
+    setMfa(null)
+    return true
+  }
+
   async function verifyMfa(fields: TwoFactorVerifyPayload) {
+    if (fields.challengeToken) setPassedChallengeToken(fields.challengeToken)
+    if (fields.force) setBindForce(true)
     return bindExisting(
       payload({
         code: fields.code,
@@ -161,8 +178,21 @@ export function BindExistingAccountForm({
         emailCode: fields.emailCode,
         force: fields.force,
         deviceName: fields.deviceName || deviceName,
+        challengeToken: fields.challengeToken,
       }),
     )
+  }
+
+  function handleMfaOuterError(err: unknown) {
+    const status = err instanceof AccountApiError ? err.status : 0
+    const code = errorCodeOf(err) || (err instanceof AccountApiError ? err.code : "") || ""
+    const body = err instanceof AccountApiError ? err.body : null
+    const detail =
+      body && typeof body === "object" && "detail" in body
+        ? (body as { detail?: { orphan_username?: string } | string }).detail
+        : null
+    const info = detail && typeof detail === "object" ? detail : null
+    return applyOrphanPending(err, info, code, status)
   }
 
   const nameLabel = usernameLabel || (allowReclaim ? S.usernameOrEmail : F.username)
@@ -204,6 +234,7 @@ export function BindExistingAccountForm({
           force={bindForce || force}
           language={locale}
           verify={completeMfaViaLogin2fa ? undefined : verifyMfa}
+          onError={handleMfaOuterError}
           onSuccess={(data) => {
             setMfa(null)
             onSuccess(data.access_token, { tokens: data, username: mfa.username })

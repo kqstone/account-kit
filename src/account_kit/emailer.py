@@ -7,7 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Any, Dict, Optional
 
-from jinja2 import ChoiceLoader, Environment, FileSystemLoader, TemplateNotFound
+from jinja2 import ChoiceLoader, Environment, FileSystemLoader, TemplateNotFound, select_autoescape
 
 from account_kit.config import AccountKitConfig
 from account_kit.i18n import email_lang_suffix, resolve_email_language, t
@@ -46,7 +46,7 @@ def _jinja_env(config: AccountKitConfig) -> Environment:
         loaders.append(FileSystemLoader(override))
     loaders.append(FileSystemLoader(_template_dir))
     loader = ChoiceLoader(loaders) if len(loaders) > 1 else loaders[0]
-    return Environment(loader=loader)
+    return Environment(loader=loader, autoescape=select_autoescape(["html", "xml"]))
 
 
 def _template_name(config: AccountKitConfig, purpose: str, lang: str) -> str:

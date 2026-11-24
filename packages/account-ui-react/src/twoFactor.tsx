@@ -525,6 +525,7 @@ export function TwoFactorLoginDialog({
   onSuccess,
   onExpired,
   onCancel,
+  onError,
 }: {
   client: AccountClient
   challenge: MfaChallenge | Record<string, unknown>
@@ -546,6 +547,8 @@ export function TwoFactorLoginDialog({
   onSuccess: (data: LoginSecondFactorResult) => void
   onExpired?: (message: string) => void
   onCancel?: () => void
+  /** Outer-handleable errors (e.g. ``SSO_ORPHAN_PENDING``). Return true to keep the passed challengeToken. */
+  onError?: (error: unknown) => boolean | void
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
@@ -620,6 +623,8 @@ export function TwoFactorLoginDialog({
         setMode("conflict")
       } else if (errCode === "MFA_CHALLENGE_INVALID" || errCode === "MFA_TOO_MANY_ATTEMPTS") {
         onExpired?.(twoFactorErrorMessage(e, L))
+      } else if (onError?.(e)) {
+        // Outer handled (SSO_ORPHAN_PENDING, …); keep the passed challengeToken.
       } else {
         setError(twoFactorErrorMessage(e, L))
         if (factor === FACTOR_EMAIL) setEmailCode("")

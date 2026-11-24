@@ -174,7 +174,11 @@ export type WechatBindExistingPayload = {
   reclaim?: boolean
 }
 
-export type BindExistingPayload = WechatBindExistingPayload
+export type SsoBindExistingPayload = WechatBindExistingPayload & {
+  challengeToken?: string
+}
+
+export type BindExistingPayload = SsoBindExistingPayload
 
 export type SsoIdentity = {
   email?: string | null
@@ -383,6 +387,7 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
       captcha_id: payload.captchaId || "",
       captcha_code: payload.captchaCode || "",
       ...(payload.reclaim ? { reclaim: true } : {}),
+      ...(payload.challengeToken ? { challenge_token: payload.challengeToken } : {}),
     }
   }
 
@@ -658,7 +663,7 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         token,
       ) as Promise<{ bound: boolean }>
     },
-    ssoBindExisting(payload: BindExistingPayload) {
+    ssoBindExisting(payload: SsoBindExistingPayload) {
       return json(ssoPath.bindExisting, bindExistingBody(payload), null, "POST", false) as Promise<TokenPair>
     },
     ssoCreateAccount(payload: { bindTicket: string; force?: boolean; deviceName?: string }) {

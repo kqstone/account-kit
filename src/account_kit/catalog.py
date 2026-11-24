@@ -7,15 +7,24 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from account_kit.approval import assert_login_allowed, count_pending, provision_user, set_user_approval
+from account_kit.approval import (
+    assert_login_allowed,
+    count_pending,
+    notify_admins_pending,
+    notify_user_approval_decision,
+    provision_user,
+    set_user_approval,
+)
 from account_kit.bind_target import lookup_bind_user, verify_bind_target
 from account_kit.bind_ticket import (
     attach_mfa_challenge,
+    discard_bind_mfa_challenge,
     find_bind_ticket_by_mfa,
     consume_bind_ticket,
     issue_bind_ticket,
     load_bind_ticket,
 )
+from account_kit.two_factor.challenges import discard_challenge
 from account_kit.i18n import account_error
 from account_kit.models import Role, User, UserTier, UserTierAssignment
 from account_kit.service import assert_role_code
@@ -207,9 +216,13 @@ __all__ = [
     "create_tier",
     "delete_role",
     "delete_tier",
+    "discard_bind_mfa_challenge",
+    "discard_challenge",
     "issue_bind_ticket",
     "load_bind_ticket",
     "lookup_bind_user",
+    "notify_admins_pending",
+    "notify_user_approval_decision",
     "patch_role",
     "patch_tier",
     "provision_user",

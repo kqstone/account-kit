@@ -276,7 +276,7 @@ async def register_user(db: AsyncSession, config: AccountKitConfig, payload: Reg
     else:
         role = await default_role(db)
 
-    from account_kit.approval import provision_user
+    from account_kit.approval import notify_admins_pending, provision_user
 
     user = await provision_user(
         db,
@@ -296,6 +296,8 @@ async def register_user(db: AsyncSession, config: AccountKitConfig, payload: Reg
         await config.on_registered(db, user, payload)
     await db.commit()
     await db.refresh(user)
+    if user.approval_status == "pending":
+        await notify_admins_pending(config, user, via="register")
     return user
 
 

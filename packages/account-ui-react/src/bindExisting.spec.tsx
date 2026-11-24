@@ -136,7 +136,86 @@ describe("BindExistingAccountForm", () => {
       username: "carol",
       password: "secret1",
       code: "123456",
+      challengeToken: "ch-1",
     })
+  })
+
+  it("2FA then 409 ALREADY_LOGGED_IN force retry sends the same challengeToken without a code", async () => {
+    const client = mockClient()
+    const bindExisting = vi
+      .fn()
+      .mockRejectedValueOnce(
+        apiError(401, "MFA_REQUIRED", { challenge_token: "ch-1", bind_ticket: "tk-1", expires_in: 300 }),
+      )
+      .mockRejectedValueOnce(apiError(409, "ALREADY_LOGGED_IN", { device_name: "iPad" }))
+      .mockResolvedValueOnce({ access_token: "tok", token_type: "bearer" })
+    const onSuccess = vi.fn()
+    render(
+      <BindExistingAccountForm
+        client={client as unknown as AccountClient}
+        bindTicket="tk-1"
+        bindExisting={bindExisting}
+        completeMfaViaLogin2fa={false}
+        onSuccess={onSuccess}
+      />,
+    )
+    await fillAndSubmit()
+    await waitFor(() => expect(screen.getByPlaceholderText("000000")).toBeTruthy())
+    fireEvent.change(screen.getByPlaceholderText("000000"), { target: { value: "123456" } })
+    await waitFor(() => expect(screen.getByText("强制登录")).toBeTruthy())
+    fireEvent.click(screen.getByText("强制登录"))
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(bindExisting.mock.calls[1][0]).toMatchObject({
+      bindTicket: "tk-1",
+      code: "123456",
+      challengeToken: "ch-1",
+    })
+    expect(bindExisting.mock.calls[2][0]).toMatchObject({
+      bindTicket: "tk-1",
+      challengeToken: "ch-1",
+      force: true,
+    })
+    expect(bindExisting.mock.calls[2][0].code || "").toBe("")
+  })
+
+  it("2FA then 409 SSO_ORPHAN_PENDING shows reclaim and resubmits with the same challengeToken", async () => {
+    const client = mockClient()
+    const bindExisting = vi
+      .fn()
+      .mockRejectedValueOnce(
+        apiError(401, "MFA_REQUIRED", { challenge_token: "ch-1", bind_ticket: "tk-1", expires_in: 300 }),
+      )
+      .mockRejectedValueOnce(apiError(409, "SSO_ORPHAN_PENDING", { orphan_username: "ghost" }))
+      .mockResolvedValueOnce({ access_token: "tok", token_type: "bearer" })
+    const onSuccess = vi.fn()
+    render(
+      <BindExistingAccountForm
+        client={client as unknown as AccountClient}
+        bindTicket="tk-1"
+        bindExisting={bindExisting}
+        allowReclaim
+        completeMfaViaLogin2fa={false}
+        onSuccess={onSuccess}
+      />,
+    )
+    await fillAndSubmit("olduser")
+    await waitFor(() => expect(screen.getByPlaceholderText("000000")).toBeTruthy())
+    fireEvent.change(screen.getByPlaceholderText("000000"), { target: { value: "123456" } })
+    await waitFor(() => expect(screen.getByText(/待审空号 ghost/)).toBeTruthy())
+    fireEvent.click(screen.getByText("确认改绑"))
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(bindExisting.mock.calls[1][0]).toMatchObject({
+      bindTicket: "tk-1",
+      code: "123456",
+      challengeToken: "ch-1",
+    })
+    expect(bindExisting.mock.calls[2][0]).toMatchObject({
+      reclaim: true,
+      challengeToken: "ch-1",
+      username: "olduser",
+      bindTicket: "tk-1",
+    })
+    expect(bindExisting.mock.calls[2][0].code || "").toBe("")
   })
 
   it("WeChat MFA completes via loginSecondFactor", async () => {

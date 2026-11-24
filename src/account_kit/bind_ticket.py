@@ -236,12 +236,29 @@ async def attach_mfa_challenge(
     ticket: BindTicket,
     challenge_token: str,
     *,
+    config: Optional[AccountKitConfig] = None,
     commit: bool = True,
 ) -> None:
-    """Link a 2FA challenge to an issued ticket. Does not consume the ticket."""
-    from account_kit.two_factor.challenges import challenge_token_hash
+    """Link a 2FA challenge to an issued ticket. Does not consume the ticket.
 
-    ticket.mfa_challenge_hash = challenge_token_hash(challenge_token or "")
+    Stamps the live challenge with this ticket's hash and purpose so reuse
+    cannot cross tickets. Association is the server-side ticket row, not a
+    client-reported jti.
+    """
+    from account_kit.two_factor.challenges import challenge_token_hash, load_challenge, save_challenge
+
+    cfg = config if config is not None else get_config()
+    raw = (challenge_token or "").strip()
+    if not raw:
+        ticket.mfa_challenge_hash = None
+    else:
+        item = await load_challenge(db, cfg, raw)
+        if item is None:
+            raise account_error(401, "MFA_CHALLENGE_INVALID", as_dict=True)
+        item.ticket_hash = ticket.ticket_hash
+        item.purpose = ticket.purpose
+        await save_challenge(db, cfg, raw, item)
+        ticket.mfa_challenge_hash = challenge_token_hash(raw)
     if commit:
         await db.commit()
         await db.refresh(ticket)
@@ -262,6 +279,27 @@ async def find_bind_ticket_by_mfa(db: AsyncSession, challenge_token: str) -> Opt
     return (await db.execute(stmt)).scalars().first()
 
 
+async def discard_bind_mfa_challenge(
+    db: AsyncSession,
+    ticket: BindTicket,
+    challenge_token: str,
+    *,
+    config: Optional[AccountKitConfig] = None,
+    commit: bool = True,
+) -> None:
+    """Drop the 2FA challenge after the host has bound the identity and issued tokens.
+
+    Safe to call if the challenge is already gone. Clears ``ticket.mfa_challenge_hash``.
+    """
+    from account_kit.two_factor.challenges import discard_challenge
+
+    cfg = config if config is not None else get_config()
+    await discard_challenge(db, cfg, challenge_token)
+    ticket.mfa_challenge_hash = None
+    if commit:
+        await db.commit()
+
+
 __all__ = [
     "BIND_TICKET_TTL_SECONDS",
     "PURPOSE_SSO_BIND",
@@ -271,6 +309,7 @@ __all__ = [
     "attach_mfa_challenge",
     "consume_bind_ticket",
     "decrypt_payload",
+    "discard_bind_mfa_challenge",
     "encrypt_payload",
     "find_bind_ticket_by_mfa",
     "issue_bind_ticket",

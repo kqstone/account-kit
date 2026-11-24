@@ -60,6 +60,11 @@ async def provision_user(
     ``create_user(approved=True)`` is unchanged; new flows should call this.
     ``source="admin"`` is always approved. ``approved`` is resolved at call time
     from ``config`` (hot-read), never captured at mount.
+
+    ``commit=True`` commits first, then emails admins if pending.
+    ``commit=False`` never emails; the host must ``notify_admins_pending`` after
+    its own successful commit. ``on_pending_user`` still runs inside the
+    transaction (before commit). Mail failures are not business failures.
     """
     from account_kit.service import create_user
 
@@ -82,7 +87,6 @@ async def provision_user(
         commit=False,
     )
     if user.approval_status == "pending":
-        await _notify_admins_pending(cfg, user, via=source)
         if cfg.on_pending_user is not None:
             await cfg.on_pending_user(db, user)
         from account_kit import audit as audit_mod
@@ -92,6 +96,8 @@ async def provision_user(
     if commit:
         await db.commit()
         await db.refresh(user)
+        if user.approval_status == "pending":
+            await notify_admins_pending(cfg, user, via=source)
     return user
 
 
@@ -117,6 +123,11 @@ async def set_user_approval(
     """Apply an approval decision. Reject requires 1–``approval_reason_max`` chars
     when ``require_reason`` is True (dedicated admin API). Approve clears reason
     and writes ``approved_at`` only on the first pass. Admin targets are refused.
+
+    ``commit=True`` commits first, then emails the user.
+    ``commit=False`` never emails; the host must ``notify_user_approval_decision``
+    after a successful commit. ``on_approval_decided`` still runs inside the
+    transaction. Mail failures are not business failures.
     """
     cfg = config if config is not None else get_config()
     if user.is_admin:
@@ -155,10 +166,10 @@ async def set_user_approval(
         await revoke_user_tokens(db, user.id, "admin")
     if cfg.on_approval_decided is not None:
         await cfg.on_approval_decided(db, user)
-    await _notify_user_decision(cfg, user, wanted)
     if commit:
         await db.commit()
         await db.refresh(user)
+        await notify_user_approval_decision(cfg, user)
     return user
 
 
@@ -167,7 +178,13 @@ async def count_pending(db: AsyncSession) -> int:
     return int(total or 0)
 
 
-async def _notify_admins_pending(config: AccountKitConfig, user: User, *, via: str) -> None:
+async def notify_admins_pending(config: AccountKitConfig, user: User, *, via: str) -> None:
+    """Email admins that ``user`` is pending. Call after the host commits.
+
+    ``provision_user(..., commit=True)`` sends this automatically after commit.
+    ``commit=False`` does not send; the host must call this after a successful
+    commit. Mail failures are logged and never raised.
+    """
     emails = tuple(item.strip() for item in (config.admin_notify_emails or ()) if item and item.strip())
     if not emails:
         return
@@ -184,10 +201,17 @@ async def _notify_admins_pending(config: AccountKitConfig, user: User, *, via: s
         await send_notice_email(config, address, "admin_pending", context=context)
 
 
-async def _notify_user_decision(config: AccountKitConfig, user: User, status: str) -> None:
+async def notify_user_approval_decision(config: AccountKitConfig, user: User) -> None:
+    """Email the user the approval / rejection decision. Call after commit.
+
+    ``set_user_approval(..., commit=True)`` sends this automatically after commit.
+    ``commit=False`` does not send. Status and reason are read from ``user``.
+    Mail failures are logged and never raised.
+    """
     email = (user.email or "").strip()
     if not email:
         return
+    status = (user.approval_status or "").strip().lower()
     purpose = "approval_approved" if status == "approved" else "approval_rejected"
     context = {
         "username": user.username,

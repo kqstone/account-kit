@@ -478,6 +478,10 @@ export const TwoFactorLoginDialog = defineComponent({
       >,
       default: null,
     },
+    handleError: {
+      type: Function as PropType<(error: unknown) => boolean | void>,
+      default: null,
+    },
   },
   emits: ["success", "expired", "cancel"],
   setup(props, { emit, attrs }) {
@@ -546,6 +550,8 @@ export const TwoFactorLoginDialog = defineComponent({
           mode.value = "conflict"
         } else if (errCode === "MFA_CHALLENGE_INVALID" || errCode === "MFA_TOO_MANY_ATTEMPTS") {
           emit("expired", twoFactorErrorMessage(e, labels))
+        } else if (props.handleError && props.handleError(e)) {
+          // Outer handled (SSO_ORPHAN_PENDING, …); keep the passed challengeToken.
         } else {
           error.value = twoFactorErrorMessage(e, labels)
           if (factor.value === FACTOR_EMAIL) emailCode.value = ""

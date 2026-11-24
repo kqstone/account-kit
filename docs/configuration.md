@@ -53,8 +53,8 @@ from account_kit.config import AccountKitConfig, SmtpConfig
 | `admin_notify_emails` | `Tuple[str, ...]` | `()` | 待审通知管理员邮箱；空则跳过 |
 | `public_base_url` | `str` | `""` | 审批邮件里的站点根 URL |
 | `notice_mailer` | `Optional[NoticeMailer]` | `None` | 审批通知发信回调；未设则走 SMTP |
-| `on_pending_user` | `Optional[UserHook]` | `None` | pending 用户创建后钩子 |
-| `on_approval_decided` | `Optional[UserHook]` | `None` | 审批决定后钩子 |
+| `on_pending_user` | `Optional[UserHook]` | `None` | pending 用户创建后钩子，**在 commit 前**运行（可写同一事务）。邮件不在此发送 |
+| `on_approval_decided` | `Optional[UserHook]` | `None` | 审批决定后钩子，**在 commit 前**运行。邮件在 `commit=True` 成功后发送，或宿主调用 `notify_user_approval_decision` |
 | `email_domain_restriction` | `bool` | `False` | 是否开启邮箱后缀白名单限制（**只约束邮箱注册与 SSO create-account**，不约束 bind-existing） |
 | `allowed_email_domains` | `Tuple[str, ...]` | `()` | 允许注册的邮箱域名后缀元组（如 `("example.com",)`） |
 | `role_change_enabled` | `bool` | `False` | 是否允许前台普通用户申请变更所属角色 |

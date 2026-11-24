@@ -13,6 +13,8 @@ from account_kit import (
     count_pending,
     create_user,
     ensure_admin,
+    notify_admins_pending,
+    notify_user_approval_decision,
     provision_user,
     set_user_approval,
 )
@@ -317,6 +319,72 @@ async def test_set_user_approval_library(api):
         assert passed.approval_status == "approved"
         assert passed.approval_reason is None
         assert passed.approved_at == first
+
+
+async def test_provision_commit_false_rollback_sends_no_mail(api):
+    notices = []
+    hooks = []
+
+    async def notice_mailer(to, purpose, language, context):
+        notices.append({"to": to, "purpose": purpose, "context": dict(context)})
+
+    async def on_pending(db, user):
+        hooks.append(user.username)
+
+    api["config"].notice_mailer = notice_mailer
+    api["config"].on_pending_user = on_pending
+    api["config"].admin_notify_emails = ("ops@example.com",)
+    api["config"].require_approval = True
+    async with api["sessions"]() as db:
+        pending = await provision_user(
+            db, get_config(), username="sso_roll", email="sso_roll@example.com", source="sso", password_set=False, commit=False
+        )
+        assert pending.approval_status == "pending"
+        assert hooks == ["sso_roll"]
+        assert notices == []
+        await db.rollback()
+    assert notices == []
+    async with api["sessions"]() as db:
+        found = await db.get(User, pending.id)
+        assert found is None
+        ok = await provision_user(
+            db, get_config(), username="sso_ok", email="sso_ok@example.com", source="sso", password_set=False, commit=False
+        )
+        await db.commit()
+        assert notices == []
+        await notify_admins_pending(get_config(), ok, via="sso")
+    assert any(item["purpose"] == "admin_pending" and item["to"] == "ops@example.com" for item in notices)
+    assert any(item["context"].get("via") == "sso" for item in notices)
+
+
+async def test_set_user_approval_commit_false_rollback_sends_no_mail(api):
+    notices = []
+
+    async def notice_mailer(to, purpose, language, context):
+        notices.append({"to": to, "purpose": purpose, "context": dict(context)})
+
+    api["config"].notice_mailer = notice_mailer
+    async with api["sessions"]() as db:
+        user = await create_user(db, get_config(), username="mailroll", email="mailroll@example.com", password="secret1")
+        user.approval_status = "pending"
+        user.approved_at = None
+        await db.commit()
+        await db.refresh(user)
+        uid = user.id
+        await set_user_approval(db, get_config(), user, status="approved", decided_by="host:ops", commit=False)
+        assert notices == []
+        await db.rollback()
+    assert notices == []
+    async with api["sessions"]() as db:
+        row = await db.get(User, uid)
+        assert row.approval_status == "pending"
+        decided = await set_user_approval(
+            db, get_config(), row, status="approved", decided_by="host:ops", commit=False
+        )
+        await db.commit()
+        assert notices == []
+        await notify_user_approval_decision(get_config(), decided)
+    assert any(item["purpose"] == "approval_approved" and item["to"] == "mailroll@example.com" for item in notices)
 
 
 async def test_notice_templates_render():

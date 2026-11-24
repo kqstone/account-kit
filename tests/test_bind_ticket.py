@@ -15,6 +15,7 @@ from account_kit import (
     BIND_TICKET_TTL_SECONDS,
     attach_mfa_challenge,
     consume_bind_ticket,
+    discard_bind_mfa_challenge,
     issue_bind_ticket,
     load_bind_ticket,
     verify_bind_target,
@@ -348,3 +349,166 @@ async def test_sso_bind_mfa_email_send_does_not_complete_via_login_2fa(api):
         )
         assert str(passed.id) == str(user["id"])
         await consume_bind_ticket(db, raw, config=get_config())
+
+
+async def _expire_challenge(db, config, raw: str) -> None:
+    from account_kit.models import TwoFactorChallenge
+    from account_kit.two_factor.challenges import challenge_store, challenge_token_hash
+
+    digest = challenge_token_hash(raw)
+    if config.use_db_state():
+        row = await db.get(TwoFactorChallenge, digest)
+        assert row is not None
+        row.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+        await db.commit()
+        return
+    item = challenge_store._items.get(digest)
+    assert item is not None
+    item.expires_at = time.monotonic() - 1
+
+
+async def test_bind_mfa_challenge_passed_survives_conflict_then_discard(api):
+    """2FA pass → simulated 409 → empty-code same challenge retry; discard blocks replay."""
+    from account_kit.two_factor.challenges import challenge_token_hash, load_challenge
+
+    user, tokens = await approved_user(api, "btch1")
+    totp, _recovery = await _enable_totp(api["client"], bearer(tokens))
+    req = _Req()
+    async with api["sessions"]() as db:
+        raw, _ = await _issue(db)
+        with pytest.raises(AccountError) as mfa:
+            await verify_bind_target(db, get_config(), req, username="btch1", password="secret1")
+        assert mfa.value.kit_code == "MFA_REQUIRED"
+        challenge = str(mfa.value.kit_extra["challenge_token"])
+        ticket, _ = await load_bind_ticket(db, raw, config=get_config())
+        await attach_mfa_challenge(db, ticket, challenge)
+        ticket, _ = await load_bind_ticket(db, raw, config=get_config())
+        first = await verify_bind_target(
+            db,
+            get_config(),
+            req,
+            username="btch1",
+            password="secret1",
+            code=totp.now(),
+            challenge_token=challenge,
+            bind_ticket=ticket,
+        )
+        assert str(first.id) == str(user["id"])
+        item = await load_challenge(db, get_config(), challenge)
+        assert item is not None and item.passed is True
+        still, _ = await load_bind_ticket(db, raw, config=get_config())
+        assert still.status == "issued"
+        retry = await verify_bind_target(
+            db,
+            get_config(),
+            req,
+            username="btch1",
+            password="secret1",
+            challenge_token=challenge,
+            bind_ticket=ticket,
+        )
+        assert str(retry.id) == str(user["id"])
+        consumed, _ = await consume_bind_ticket(db, raw, config=get_config(), commit=False)
+        await db.commit()
+        await discard_bind_mfa_challenge(db, consumed, challenge)
+        assert consumed.mfa_challenge_hash is None
+        assert await load_challenge(db, get_config(), challenge) is None
+
+        raw2, _ = await _issue(db, claims=_claims(subject="sub-replay"))
+        fresh, _ = await load_bind_ticket(db, raw2, config=get_config())
+        fresh.mfa_challenge_hash = challenge_token_hash(challenge)
+        await db.commit()
+        with pytest.raises(AccountError) as replay:
+            await verify_bind_target(
+                db,
+                get_config(),
+                req,
+                username="btch1",
+                password="secret1",
+                challenge_token=challenge,
+                bind_ticket=fresh,
+            )
+        assert replay.value.kit_code == "MFA_CHALLENGE_INVALID"
+
+
+async def test_bind_mfa_challenge_rejects_cross_user_ticket_purpose_expired(api):
+    from account_kit.two_factor.challenges import load_challenge
+
+    user_a, tokens_a = await approved_user(api, "btchA")
+    totp_a, _ = await _enable_totp(api["client"], bearer(tokens_a))
+    user_b, tokens_b = await approved_user(api, "btchB")
+    totp_b, _ = await _enable_totp(api["client"], bearer(tokens_b))
+    req = _Req()
+    async with api["sessions"]() as db:
+        raw_a, _ = await _issue(db, claims=_claims(subject="sub-a"))
+        raw_b, _ = await _issue(db, claims=_claims(subject="sub-b"))
+        with pytest.raises(AccountError) as mfa:
+            await verify_bind_target(db, get_config(), req, username="btchA", password="secret1")
+        challenge = str(mfa.value.kit_extra["challenge_token"])
+        ticket_a, _ = await load_bind_ticket(db, raw_a, config=get_config())
+        await attach_mfa_challenge(db, ticket_a, challenge)
+        ticket_a, _ = await load_bind_ticket(db, raw_a, config=get_config())
+        await verify_bind_target(
+            db,
+            get_config(),
+            req,
+            username="btchA",
+            password="secret1",
+            code=totp_a.now(),
+            challenge_token=challenge,
+            bind_ticket=ticket_a,
+        )
+        ticket_b, _ = await load_bind_ticket(db, raw_b, config=get_config())
+        with pytest.raises(AccountError) as cross_ticket:
+            await verify_bind_target(
+                db,
+                get_config(),
+                req,
+                username="btchA",
+                password="secret1",
+                challenge_token=challenge,
+                bind_ticket=ticket_b,
+            )
+        assert cross_ticket.value.kit_code == "MFA_CHALLENGE_INVALID"
+        with pytest.raises(AccountError) as cross_user:
+            await verify_bind_target(
+                db,
+                get_config(),
+                req,
+                username="btchB",
+                password="secret1",
+                challenge_token=challenge,
+                bind_ticket=ticket_a,
+            )
+        assert cross_user.value.kit_code == "MFA_CHALLENGE_INVALID"
+        ticket_a.purpose = "bind"
+        await db.commit()
+        await db.refresh(ticket_a)
+        with pytest.raises(AccountError) as purpose:
+            await verify_bind_target(
+                db,
+                get_config(),
+                req,
+                username="btchA",
+                password="secret1",
+                challenge_token=challenge,
+                bind_ticket=ticket_a,
+                login_purpose="sso_bind",
+            )
+        assert purpose.value.kit_code == "MFA_CHALLENGE_INVALID"
+        ticket_a.purpose = "sso_bind"
+        await db.commit()
+        await _expire_challenge(db, get_config(), challenge)
+        with pytest.raises(AccountError) as expired_exc:
+            await verify_bind_target(
+                db,
+                get_config(),
+                req,
+                username="btchA",
+                password="secret1",
+                challenge_token=challenge,
+                bind_ticket=ticket_a,
+            )
+        assert expired_exc.value.kit_code == "MFA_CHALLENGE_INVALID"
+        assert await load_challenge(db, get_config(), challenge) is None
+        assert totp_b and user_b["id"]

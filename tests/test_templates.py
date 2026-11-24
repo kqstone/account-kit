@@ -75,6 +75,48 @@ def test_template_map_rejects_traversal():
     assert "注册账户" in body
 
 
+def test_notice_email_escapes_script_and_anchor_but_keeps_template_tags():
+    from account_kit.emailer import render_notice_email
+
+    config = _config(brand_name="Acme")
+    payload = {
+        "username": '<script>alert("u")</script>',
+        "email": 'evil@x.com"><a href="https://evil.test">x</a>',
+        "reason": '<script>alert(1)</script><a href="javascript:alert(1)">click</a>\nnext line',
+        "via": "<b>sso</b>",
+        "public_base_url": "https://ex.example",
+    }
+    for purpose, lang in (
+        ("approval_rejected", "zh"),
+        ("approval_rejected", "en"),
+        ("approval_approved", "zh"),
+        ("admin_pending", "zh"),
+        ("admin_pending", "en"),
+    ):
+        _subject, body = render_notice_email(config, purpose, lang, payload)
+        assert "<script>" not in body
+        assert "<a href" not in body.lower()
+        assert "&lt;script&gt;" in body
+        assert "<h3>" in body
+        assert "<p" in body
+        assert "<strong>" in body
+        if purpose == "approval_rejected":
+            assert "&lt;a href" in body
+            assert "next line" in body
+        if purpose == "admin_pending":
+            assert "&lt;a href" in body
+
+
+def test_code_email_escapes_dynamic_values_and_keeps_markup():
+    config = _config(brand_name='Acme<script>x</script>')
+    _subject, body = render_code_email(config, "login_2fa", "<script>1</script>", "zh")
+    assert "<script>" not in body
+    assert "&lt;script&gt;" in body
+    assert "<h3>" in body
+    assert '<div class="code">' in body
+    assert "<strong>" in body
+
+
 def test_safe_template_name():
     assert _safe_template_name("two_factor_login_zh.html") == "two_factor_login_zh.html"
     assert _safe_template_name("nested/ok.html") == "nested/ok.html"

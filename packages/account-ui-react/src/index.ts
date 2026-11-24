@@ -13,6 +13,7 @@ export type {
   ProfileUpdateResult,
   RoleChangeRequest,
   SecondFactorPayload,
+  SsoBindExistingPayload,
   SsoBindStartResult,
   SsoBindingStatus,
   SsoCreateAccountResult,

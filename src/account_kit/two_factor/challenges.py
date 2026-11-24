@@ -34,6 +34,10 @@ class Challenge:
     passed: bool = False
     method: Optional[str] = None
     created_at: float = field(default_factory=time.monotonic)
+    # Server-side bind-ticket association (memory store is live; DB relies on
+    # BindTicket.mfa_challenge_hash). Never trust a client-reported jti.
+    ticket_hash: Optional[str] = None
+    purpose: Optional[str] = None
 
 
 class ChallengeStore:

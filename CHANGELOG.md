@@ -18,15 +18,16 @@
 - `approval.py`：`provision_user`、`assert_login_allowed`、`set_user_approval`、`count_pending`。一个 `require_approval` 同时管邮箱注册、SSO 开户、微信注册。管理员手工建号始终 approved。开关改否不批量放行已有 pending。
 - 专用 `PATCH {admin_prefix}/users/{id}/approval`：拒绝必填 1–`approval_reason_max` 字。通用 `PATCH .../users/{id}` 无原因拒绝仍允许（兼容 0.6.0）。`GET .../users?approval_status=`、`GET .../users/pending-count`。
 - `bind_ticket.py`：Fernet 一次票，默认 600s；消费 `SELECT FOR UPDATE` + `populate_existing`，避免同 Session 先 load 再锁时读到 identity-map 旧 issued 值。
-- `verify_bind_target()`：密码 + captcha + lockout + 审批 + 可选禁管理员 + 2FA。微信 bind-existing 内部改调它（`forbid_admin=False`）。
+- `verify_bind_target()`：密码 + captcha + lockout + 审批 + 可选禁管理员 + 2FA。可选 `challenge_token` + 已加载的 `bind_ticket` 行：首次 2FA 通过置 `passed=True` 且 **不 discard**，同一用户同一票后续空码可过（force / reclaim），跨用户/跨票/用途/过期拒绝。宿主绑定+发 token 成功后 `discard_bind_mfa_challenge` / `discard_challenge`。微信 bind-existing 内部改调它（`forbid_admin=False`），不传 `challenge_token` 时原行为不变。
 - SSO 邮箱 MFA 挑战挂在 bind_ticket 上：可走 `POST /login/2fa/email/send` 发码；`POST /login/2fa` 若命中 SSO ticket 返回 `SSO_BIND_TICKET_INVALID`，必须二次 POST 宿主 bind-existing（ticket 不消费）。微信仍走 `complete_pending_wechat_bind`。
-- 邮件：`approval_approved` / `approval_rejected` / `admin_pending`。SMTP 或 `admin_notify_emails` 空则跳过。
+- 邮件：`approval_approved` / `approval_rejected` / `admin_pending`。SMTP 或 `admin_notify_emails` 空则跳过。Jinja `autoescape` 转义动态 `reason` / `username` / `email`。`provision_user` / `set_user_approval` 仅在 `commit=True` 时 **先 commit 再发信**；`commit=False` 不发，宿主 commit 后调用 `notify_admins_pending` / `notify_user_approval_decision`。`on_pending_user` / `on_approval_decided` 仍在事务内。邮件失败不变成业务失败。
+- 审计事件名：`sso_bound` / `sso_unbound` / `login_sso`。
 - 被拒重新申请一期不进 kit。
 
 **前端（React / Vue 能力与导出一致）**
 
 - `AccountUser` 审批字段；`formatError` 新码 + 拒绝原因；`RegisterForm` pending 文案；`ApprovalStatusBadge`；`client.admin.setApproval` / `pendingCount`。
-- `BindExistingAccountForm`（用户名或邮箱 / 密码 / captcha / 2FA / 错误 / reclaim）。
+- `BindExistingAccountForm`（用户名或邮箱 / 密码 / captcha / 2FA / 错误 / reclaim）。SSO 2FA 把 `challengeToken` 传给宿主；`ALREADY_LOGGED_IN` 强制登录与 `SSO_ORPHAN_PENDING` reclaim 重试同一挑战、免重输 2FA。`client.SsoBindExistingPayload.challengeToken`。
 - `SsoBindPanel`：身份摘要、绑定 / 无密码创建、`allowCreate`、倒计时失效、MFA 再 POST 宿主 bind-existing 且保留票、reclaim 确认与冲突。
 - `SsoBindSettings`：绑定跳转、邮箱掩码、解绑密码+2FA、`password_set===false` 先设密码门闩。
 - `WechatQrLogin` 绑定 Tab 复用共享表单，原 captcha / MFA 行为保留。

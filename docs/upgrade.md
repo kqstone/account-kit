@@ -42,8 +42,8 @@ await ensure_schema(engine)
 ### 宿主事务示例
 
 ```python
-from account_kit.approval import provision_user, assert_login_allowed
-from account_kit.bind_ticket import issue_bind_ticket, consume_bind_ticket
+from account_kit.approval import provision_user, assert_login_allowed, notify_admins_pending
+from account_kit.bind_ticket import issue_bind_ticket, consume_bind_ticket, discard_bind_mfa_challenge
 from account_kit.bind_target import verify_bind_target
 
 # finish 未知身份
@@ -54,15 +54,21 @@ raw, ttl = await issue_bind_ticket(db, get_config(), claims={
 return {"status": "bind_required", "bind_ticket": raw, "expires_in": ttl, "identity": {...}}
 
 # bind-existing：校验后写 sso_links，再消费票（同一事务）
-user = await verify_bind_target(db, get_config(), request, username=..., password=..., forbid_admin=True)
+# 2FA：把 challenge_token 与 load 出来的 ticket 行传入；409 冲突/orphan 不要 discard
+user = await verify_bind_target(
+    db, get_config(), request, username=..., password=...,
+    challenge_token=challenge_token, bind_ticket=ticket, forbid_admin=True,
+)
 # 写 sso_links；409 SSO_IDENTITY_ALREADY_BOUND / SSO_TARGET_ALREADY_BOUND / reclaim
 await consume_bind_ticket(db, raw, config=get_config(), commit=False)
 await db.commit()
+await discard_bind_mfa_challenge(db, ticket, challenge_token)  # 仅成功后
 
 # create-account
 user = await provision_user(db, get_config(), username=..., email=..., full_name=...,
                             source="sso", password_set=False, commit=False)
 # 写 sso_links 后 commit。邮箱域名限制只在此处。
+# commit=False 不发待审信；成功后再 notify_admins_pending(config, user, via="sso")
 ```
 
 kit **不**注册 `/sso/bind-existing` 等 RP 路由。前端 `AccountClientOptions.ssoPaths` 指向宿主。
