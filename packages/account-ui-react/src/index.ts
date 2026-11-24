@@ -3,6 +3,8 @@ export type {
   AccountClient,
   AccountClientOptions,
   AccountUser,
+  AdminApprovalBody,
+  BindExistingPayload,
   CaptchaChallenge,
   CodePurpose,
   CodeSentResult,
@@ -11,6 +13,10 @@ export type {
   ProfileUpdateResult,
   RoleChangeRequest,
   SecondFactorPayload,
+  SsoBindStartResult,
+  SsoBindingStatus,
+  SsoCreateAccountResult,
+  SsoIdentity,
   TokenPair,
   TokenStore,
   TrustedDevice,
@@ -23,22 +29,38 @@ export type {
 } from "./client"
 export { LoginForm, RegisterForm, ResetPasswordForm } from "./forms"
 export type { LoginSuccessExtra } from "./forms"
+export { BindExistingAccountForm } from "./bindExisting"
+export type { BindExistingSuccessExtra } from "./bindExisting"
+export { ApprovalStatusBadge, SsoBindPanel, SsoBindSettings } from "./ssoBind"
 export { AccountKitProvider, followI18next, useAccountI18n, useKitLocale } from "./i18n"
 export type { AccountI18nContext, I18nLike } from "./i18n"
 export { defaultErrorLabels } from "./errors"
-export { errorCodeOf, formatDateTime, formatError, resolveLocale } from "./utils"
+export { canonicalErrorCode, errorCodeOf, formatDateTime, formatError, resolveLocale } from "./utils"
 export type { KitLocale } from "./utils"
 export {
+  defaultApprovalLabels,
   defaultFormLabels,
   defaultProfileLabels,
+  defaultSsoLabels,
   defaultTwoFactorLabels,
   defaultWechatLabels,
+  resolveApprovalLabels,
   resolveFormLabels,
   resolveProfileLabels,
+  resolveSsoLabels,
   resolveTwoFactorLabels,
   resolveWechatLabels,
 } from "./labels"
-export type { AccountLocaleMessages, AccountMessagesOverride, FormLabels, ProfileLabels, TwoFactorLabels, WechatLabels } from "./labels"
+export type {
+  AccountLocaleMessages,
+  AccountMessagesOverride,
+  ApprovalLabels,
+  FormLabels,
+  ProfileLabels,
+  SsoLabels,
+  TwoFactorLabels,
+  WechatLabels,
+} from "./labels"
 export {
   canSubmitFactor,
   FACTOR_EMAIL,
@@ -67,6 +89,7 @@ export {
   trustedDeviceScope,
 } from "./trustedDevice"
 export { TwoFactorLoginDialog, TwoFactorSettings } from "./twoFactor"
+export type { TwoFactorVerifyPayload } from "./twoFactor"
 export { WechatBindSettings, WechatQrLogin } from "./wechat"
 export { AuthShell, CodeInputRow } from "./authShell"
 export type { AuthShellProps, CodeInputRowProps } from "./authShell"

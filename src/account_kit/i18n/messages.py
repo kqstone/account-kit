@@ -169,6 +169,12 @@ _ZH_CN: Dict[str, str] = {
     "SSO_BIND_TICKET_INVALID": "绑定凭证无效",
     "SSO_BIND_TICKET_EXPIRED": "绑定凭证已过期，请重新用成龈之美登录",
     "SSO_BIND_TICKET_CONSUMED": "绑定凭证已使用",
+    "SSO_IDENTITY_ALREADY_BOUND": "该成龈之美账号已绑定其他用户",
+    "SSO_TARGET_ALREADY_BOUND": "该账号已绑定其他成龈之美身份",
+    "SSO_ORPHAN_PENDING": "该成龈之美账号曾创建过待审空号。确认后将改绑到你输入的账号",
+    "SSO_CREATE_DISABLED": "不允许用成龈之美创建新账号，请绑定已有账号",
+    "SSO_UNBIND_PASSWORD_REQUIRED": "请先设置密码再解绑成龈之美",
+    "SSO_EMAIL_AMBIGUOUS": "该邮箱对应多个账号，无法自动关联",
 }
 
 _EN: Dict[str, str] = {
@@ -316,8 +322,14 @@ _EN: Dict[str, str] = {
     "SSO_STATE_REQUIRED": "The state parameter is required",
     "SSO_INVALID_REQUEST": "Invalid request",
     "SSO_BIND_TICKET_INVALID": "Bind ticket is invalid",
-    "SSO_BIND_TICKET_EXPIRED": "Bind ticket expired, please sign in again",
+    "SSO_BIND_TICKET_EXPIRED": "Bind ticket expired, please sign in with the identity provider again",
     "SSO_BIND_TICKET_CONSUMED": "Bind ticket has already been used",
+    "SSO_IDENTITY_ALREADY_BOUND": "This identity is already linked to another account",
+    "SSO_TARGET_ALREADY_BOUND": "This account is already linked to another identity",
+    "SSO_ORPHAN_PENDING": "This identity was linked to a pending unused account. Confirm to reclaim it",
+    "SSO_CREATE_DISABLED": "Creating an account from this identity provider is disabled",
+    "SSO_UNBIND_PASSWORD_REQUIRED": "Set a password before unlinking this identity",
+    "SSO_EMAIL_AMBIGUOUS": "Multiple accounts share this email",
 }
 
 MESSAGES: Dict[str, Dict[str, str]] = {

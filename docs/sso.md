@@ -112,7 +112,29 @@ profile = await fetch_userinfo(issuer="https://gingiva.top:8443", access_token=t
 
 `verify_id_token` 校验 **iss / aud / exp / nonce / 签名**（JWKS 或 HS256 secret）。
 
-宿主 finish：用 `iss`/`sub` 查自己的 `sso_links`，没有则 email 精确匹配后插入，再 `complete_login_tokens`。管理员账号不要走 SSO。
+宿主 finish：用 `iss`/`sub` 查自己的 `sso_links`。命中则 `assert_login_allowed` 后发本站 token。未命中但 email 唯一命中且 `sso_email_auto_link=True` 且 `email_verified=true` 则自动写 link。**未知身份禁止 `create_user`**，签发 `bind_ticket` 返回 `bind_required`。管理员账号不要走 SSO。
+
+---
+
+## RP 绑定已有用户（0.7.0）
+
+kit 提供票与校验，**不**注册 `/sso/bind-existing` 等 RP 路由。`sso_links` 仍在宿主。
+
+| helper | 职责 |
+|---|---|
+| `issue_bind_ticket` / `load_bind_ticket` / `consume_bind_ticket` | 600s 一次票。消费 `SELECT FOR UPDATE` + `populate_existing` |
+| `verify_bind_target` | 密码 + captcha + lockout + 审批 + 可选禁管理员 + 2FA |
+| `provision_user(source="sso", password_set=False, commit=False)` | 仅 create-account。读当前 `require_approval` |
+
+宿主路由（前缀由宿主定，kit UI 用 `AccountClientOptions.ssoPaths`）：
+
+- `POST /sso/bind-existing`：校验后写 link，再消费票。2FA → `401 MFA_REQUIRED` 且 **ticket 不消费**；前端二次 POST 本接口（不要走 kit `POST /login/2fa`，那会 400 `SSO_BIND_TICKET_INVALID`）。邮箱码仍用 `POST /login/2fa/email/send`。
+- `POST /sso/create-account`：此处才做邮箱域名限制。`sso_allow_create=False` → `SSO_CREATE_DISABLED`。
+- `POST /sso/bind/start`、`GET /sso/binding`、`POST /sso/unbind`：个人中心。解绑时 `password_set=false` → `SSO_UNBIND_PASSWORD_REQUIRED`。
+
+reclaim：占用方同时 `pending + password_set=false + approved_at is NULL` 时默认 409 `SSO_ORPHAN_PENDING`；`reclaim: true` 改绑到老号，空号保留给管理员删除。
+
+前端：`SsoBindPanel` / `BindExistingAccountForm` / `SsoBindSettings`。kit 不注册 RP 路由。
 
 ---
 

@@ -118,6 +118,26 @@ export async function adminGetUsers(): Promise<AdminUserItem[]> {
   return data
 }
 
+export async function adminSetApproval(
+  userId: string,
+  body: { status: 'approved' | 'rejected'; reason?: string }
+): Promise<AdminUserItem> {
+  const res = await fetch(`/api/admin/account/users/${userId}/approval`, {
+    method: 'PATCH',
+    headers: getAdminHeaders(),
+    body: JSON.stringify(body),
+  })
+  const data = await res.json()
+  if (!res.ok) {
+    const msg =
+      typeof data.detail === 'object'
+        ? data.detail?.message || data.detail?.code || getT().apiPatchUserFailed
+        : data.detail || getT().apiPatchUserFailed
+    throw new Error(msg)
+  }
+  return data
+}
+
 export async function adminPatchUser(
   userId: string,
   patch: {

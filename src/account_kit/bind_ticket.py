@@ -161,6 +161,10 @@ async def load_bind_ticket(
         raise account_error(400, "SSO_BIND_TICKET_INVALID")
     digest = ticket_hash(raw.strip())
     stmt = select(BindTicket).where(BindTicket.ticket_hash == digest)
+    # Always refresh identity-map rows. A prior load in this Session plus
+    # another Session consuming the ticket would otherwise return the stale
+    # ``issued`` instance (and its leftover payload_cipher) even after FOR UPDATE.
+    stmt = stmt.execution_options(populate_existing=True)
     if consume:
         stmt = stmt.with_for_update()
     result = await db.execute(stmt)
@@ -243,6 +247,21 @@ async def attach_mfa_challenge(
         await db.refresh(ticket)
 
 
+async def find_bind_ticket_by_mfa(db: AsyncSession, challenge_token: str) -> Optional[BindTicket]:
+    """Return the issued SSO bind ticket attached to this login-2FA challenge, if any."""
+    from account_kit.two_factor.challenges import challenge_token_hash
+
+    digest = challenge_token_hash(challenge_token or "")
+    if not digest:
+        return None
+    stmt = (
+        select(BindTicket)
+        .where(BindTicket.mfa_challenge_hash == digest)
+        .execution_options(populate_existing=True)
+    )
+    return (await db.execute(stmt)).scalars().first()
+
+
 __all__ = [
     "BIND_TICKET_TTL_SECONDS",
     "PURPOSE_SSO_BIND",
@@ -253,6 +272,7 @@ __all__ = [
     "consume_bind_ticket",
     "decrypt_payload",
     "encrypt_payload",
+    "find_bind_ticket_by_mfa",
     "issue_bind_ticket",
     "load_bind_ticket",
     "ticket_hash",

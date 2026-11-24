@@ -284,3 +284,67 @@ def test_wechat_bind_existing_reuses_helper_keep_admin_and_mfa_consume():
     helper = inspect.getsource(complete_pending_wechat_bind)
     assert "bind_identity" in helper
     assert "consumed" in helper
+
+
+async def test_stale_identity_map_does_not_revive_consumed_ticket(api):
+    """Session A loads (issued in identity map); Session B consumes; Session A
+    consume must see consumed, not replay the cached issued row/cipher."""
+    async with api["sessions"]() as db_a:
+        raw, _ = await _issue(db_a)
+        ticket, _ = await load_bind_ticket(db_a, raw, config=get_config())
+        assert ticket.status == "issued"
+        assert ticket.payload_cipher
+        async with api["sessions"]() as db_b:
+            consumed, _ = await consume_bind_ticket(db_b, raw, config=get_config())
+            assert consumed.status == "consumed"
+            assert consumed.payload_cipher is None
+        with pytest.raises(AccountError) as exc:
+            await consume_bind_ticket(db_a, raw, config=get_config())
+        assert exc.value.kit_code == "SSO_BIND_TICKET_CONSUMED"
+        await db_a.rollback()
+    async with api["sessions"]() as db:
+        row = (await db.execute(select(BindTicket))).scalars().one()
+        assert row.status == "consumed"
+        assert row.payload_cipher is None
+
+
+async def test_sso_bind_mfa_email_send_does_not_complete_via_login_2fa(api):
+    """Email code for an SSO bind challenge must send, and POST /login/2fa must
+    not take the WeChat complete branch or issue tokens; ticket stays issued."""
+    api["config"].two_factor_email_enabled = True
+    api["config"].wechat_enabled = True
+    user, tokens = await approved_user(api, "btmail")
+    totp, _recovery = await _enable_totp(api["client"], bearer(tokens))
+    req = _Req()
+    async with api["sessions"]() as db:
+        raw, _ = await _issue(db)
+        with pytest.raises(AccountError) as mfa:
+            await verify_bind_target(db, get_config(), req, username="btmail", password="secret1")
+        assert mfa.value.kit_code == "MFA_REQUIRED"
+        challenge = str(mfa.value.kit_extra["challenge_token"])
+        ticket, _ = await load_bind_ticket(db, raw, config=get_config())
+        await attach_mfa_challenge(db, ticket, challenge)
+        assert ticket.status == "issued"
+        assert ticket.mfa_challenge_hash
+    sent = await api["client"].post(
+        "/api/auth/login/2fa/email/send",
+        json={"challenge_token": challenge, "language": "zh"},
+    )
+    assert sent.status_code == 200, sent.text
+    assert sent.json().get("email")
+    verify = await api["client"].post(
+        "/api/auth/login/2fa",
+        data={"challenge_token": challenge, "code": totp.now()},
+    )
+    assert verify.status_code == 400, verify.text
+    assert verify.json()["code"] == "SSO_BIND_TICKET_INVALID"
+    assert "access_token" not in (verify.json() or {})
+    async with api["sessions"]() as db:
+        still, _ = await load_bind_ticket(db, raw, config=get_config())
+        assert still.status == "issued"
+        assert still.payload_cipher
+        passed = await verify_bind_target(
+            db, get_config(), req, username="btmail", password="secret1", code=totp.now()
+        )
+        assert str(passed.id) == str(user["id"])
+        await consume_bind_ticket(db, raw, config=get_config())

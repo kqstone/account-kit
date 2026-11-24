@@ -156,8 +156,51 @@ export type FormLabels = {
   captchaEnter: string
   captchaInvalid: string
   alreadyLoggedIn: string
+  /** Shown after register when ``approval_status === "pending"``. */
+  registerPending: string
   error: string
   errors: Record<string, string>
+}
+
+export type ApprovalLabels = {
+  pending: string
+  approved: string
+  rejected: string
+}
+
+export type SsoLabels = {
+  bindTitle: string
+  bindHint: string
+  bindExisting: string
+  createAccount: string
+  createConfirm: string
+  identityLabel: string
+  identityEmail: string
+  identityName: string
+  ticketExpired: string
+  ticketExpiresIn: string
+  pendingTitle: string
+  rejectedTitle: string
+  section: string
+  bound: string
+  unbound: string
+  bind: string
+  unbind: string
+  emailMasked: string
+  unbindNeedPassword: string
+  unbindHint: string
+  unbindConfirm: string
+  boundOk: string
+  unboundOk: string
+  loading: string
+  error: string
+  cancel: string
+  currentPassword: string
+  usernameOrEmail: string
+  reclaimHint: string
+  reclaimConfirm: string
+  createDisabled: string
+  backToLogin: string
 }
 
 export type WechatLabels = {
@@ -496,6 +539,7 @@ const formZh: FormLabels = {
   captchaEnter: "请输入图形验证码",
   captchaInvalid: "图形验证码错误，请重试",
   alreadyLoggedIn: "已在{device}登录，再次提交将其下线",
+  registerPending: "注册成功，账号待管理员审批后方可登录",
   error: "请求失败",
   errors: { ...defaultErrorLabels["zh-CN"] },
 }
@@ -531,6 +575,7 @@ const formEn: FormLabels = {
   captchaEnter: "Please enter the captcha",
   captchaInvalid: "Wrong captcha, please retry",
   alreadyLoggedIn: "Signed in on {device}. Submit again to sign it out.",
+  registerPending: "Registration succeeded. An admin must approve the account before you can sign in.",
   error: "Request failed",
   errors: { ...defaultErrorLabels.en },
 }
@@ -562,6 +607,53 @@ const wechatZh: WechatLabels = {
   currentPassword: "当前密码",
 }
 
+const approvalZh: ApprovalLabels = {
+  pending: "待审批",
+  approved: "已通过",
+  rejected: "未通过",
+}
+
+const approvalEn: ApprovalLabels = {
+  pending: "Pending",
+  approved: "Approved",
+  rejected: "Rejected",
+}
+
+const ssoZh: SsoLabels = {
+  bindTitle: "绑定成龈之美账号",
+  bindHint: "请选择绑定已有账号，或创建新账号并登录。",
+  bindExisting: "绑定已有账号",
+  createAccount: "创建新账号",
+  createConfirm: "将用 {email} 创建新账号",
+  identityLabel: "成龈之美账号",
+  identityEmail: "邮箱",
+  identityName: "昵称",
+  ticketExpired: "绑定凭证已过期，请返回登录页重新用成龈之美登录",
+  ticketExpiresIn: "{s} 秒后失效",
+  pendingTitle: "账号待审批",
+  rejectedTitle: "账号未通过审核",
+  section: "成龈之美",
+  bound: "已绑定成龈之美",
+  unbound: "未绑定成龈之美",
+  bind: "绑定成龈之美",
+  unbind: "解绑成龈之美",
+  emailMasked: "已绑定邮箱",
+  unbindNeedPassword: "请先设置密码再解绑成龈之美",
+  unbindHint: "解绑需要验证当前密码；若已开启两步验证，还需第二因素。",
+  unbindConfirm: "确认解绑",
+  boundOk: "成龈之美已绑定",
+  unboundOk: "成龈之美已解绑",
+  loading: "加载中…",
+  error: "请求失败",
+  cancel: "取消",
+  currentPassword: "当前密码",
+  usernameOrEmail: "用户名或邮箱",
+  reclaimHint: "该成龈之美账号曾创建过待审空号 {username}。确认后将改绑到你输入的账号，空号保留给管理员处理。",
+  reclaimConfirm: "确认改绑",
+  createDisabled: "不允许用成龈之美创建新账号，请绑定已有账号",
+  backToLogin: "返回登录",
+}
+
 const wechatEn: WechatLabels = {
   title: "Sign in with WeChat",
   hint: "Scan the Mini Program code with WeChat and confirm on your phone.",
@@ -589,16 +681,55 @@ const wechatEn: WechatLabels = {
   currentPassword: "Current password",
 }
 
+const ssoEn: SsoLabels = {
+  bindTitle: "Link your identity",
+  bindHint: "Bind an existing account, or create a new one to continue.",
+  bindExisting: "Bind existing account",
+  createAccount: "Create account",
+  createConfirm: "Create a new account with {email}",
+  identityLabel: "Identity",
+  identityEmail: "Email",
+  identityName: "Name",
+  ticketExpired: "The bind ticket expired. Return to sign-in and try again.",
+  ticketExpiresIn: "Expires in {s}s",
+  pendingTitle: "Account pending approval",
+  rejectedTitle: "Account was not approved",
+  section: "Single sign-on",
+  bound: "Identity linked",
+  unbound: "Identity not linked",
+  bind: "Link identity",
+  unbind: "Unlink identity",
+  emailMasked: "Linked email",
+  unbindNeedPassword: "Set a password before unlinking this identity",
+  unbindHint: "Unlinking requires your current password, plus a second factor if 2FA is on.",
+  unbindConfirm: "Unlink",
+  boundOk: "Identity linked",
+  unboundOk: "Identity unlinked",
+  loading: "Loading…",
+  error: "Request failed",
+  cancel: "Cancel",
+  currentPassword: "Current password",
+  usernameOrEmail: "Username or email",
+  reclaimHint: "This identity was linked to a pending unused account {username}. Confirm to move the link to the account you entered. The unused account is kept for an admin to delete.",
+  reclaimConfirm: "Confirm reclaim",
+  createDisabled: "Creating an account from this identity provider is disabled. Bind an existing account.",
+  backToLogin: "Back to sign-in",
+}
+
 export const defaultTwoFactorLabels: Record<KitLocale, TwoFactorLabels> = { "zh-CN": twoFactorZh, en: twoFactorEn }
 export const defaultProfileLabels: Record<KitLocale, ProfileLabels> = { "zh-CN": profileZh, en: profileEn }
 export const defaultFormLabels: Record<KitLocale, FormLabels> = { "zh-CN": formZh, en: formEn }
 export const defaultWechatLabels: Record<KitLocale, WechatLabels> = { "zh-CN": wechatZh, en: wechatEn }
+export const defaultApprovalLabels: Record<KitLocale, ApprovalLabels> = { "zh-CN": approvalZh, en: approvalEn }
+export const defaultSsoLabels: Record<KitLocale, SsoLabels> = { "zh-CN": ssoZh, en: ssoEn }
 
 export type AccountLocaleMessages = {
   forms: FormLabels
   profile: ProfileLabels
   twoFactor: TwoFactorLabels
   wechat: WechatLabels
+  sso: SsoLabels
+  approval: ApprovalLabels
   errors: Record<string, string>
 }
 
@@ -613,7 +744,7 @@ function resolveSection<T extends object>(
   base: T,
   messages: AccountMessagesOverride | null | undefined,
   language: string | undefined,
-  section: "forms" | "profile" | "twoFactor" | "wechat",
+  section: "forms" | "profile" | "twoFactor" | "wechat" | "sso" | "approval",
   override?: DeepPartial<T> | null,
 ): T {
   const provider = messages?.[resolveLocale(language)]
@@ -656,4 +787,22 @@ export function resolveWechatLabels(
 ): WechatLabels {
   const loc = resolveLocale(language)
   return resolveSection(defaultWechatLabels[loc], messages, loc, "wechat", override)
+}
+
+export function resolveSsoLabels(
+  language?: string,
+  override?: DeepPartial<SsoLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): SsoLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultSsoLabels[loc], messages, loc, "sso", override)
+}
+
+export function resolveApprovalLabels(
+  language?: string,
+  override?: DeepPartial<ApprovalLabels> | null,
+  messages?: AccountMessagesOverride | null,
+): ApprovalLabels {
+  const loc = resolveLocale(language)
+  return resolveSection(defaultApprovalLabels[loc], messages, loc, "approval", override)
 }

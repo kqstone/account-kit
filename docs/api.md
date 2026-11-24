@@ -365,8 +365,10 @@
 | `POST` | `/tiers` | 创建新用户等级 | - |
 | `PATCH` | `/tiers/{code}` | 修改等级属性（徽章颜色/排序等） | - |
 | `DELETE` | `/tiers/{code}` | 删除用户等级 | - |
-| `GET` | `/users` | 查看用户列表（按注册时间倒序） | - |
-| `PATCH` | `/users/{user_id}` | 修改用户状态（角色、等级、is_active、审批状态）；不能修改 `is_admin`，也不能停用/撤审批管理员（400） | - |
+| `GET` | `/users` | 查看用户列表（按注册时间倒序）。查询参数 `approval_status=pending\|approved\|rejected` | - |
+| `GET` | `/users/pending-count` | `{ pending: int }` | - |
+| `PATCH` | `/users/{user_id}` | 修改用户状态（角色、等级、is_active、审批状态）；不能修改 `is_admin`，也不能停用/撤审批管理员（400）。无原因拒绝仍允许（兼容 0.6.0） | - |
+| `PATCH` | `/users/{user_id}/approval` | 专用审批。Body `{ status: "approved"\|"rejected", reason? }`。拒绝必填 1–`approval_reason_max` 字，否则 400 `REJECT_REASON_REQUIRED` | - |
 | `DELETE` | `/users/{user_id}` | 删除或软删除用户（受 `user_delete_mode` 控制）；管理员不可删除（400 `ADMIN_DELETE_FORBIDDEN`） | - |
 | `POST` | `/users/{user_id}/2fa/reset` | 管理员强制重置用户的两步验证（清空 TOTP 及受信设备） | `two_factor_enabled` |
 | `POST` | `/role-change-requests/{request_id}/review` | 审核角色申请（`{"status": "approved" \| "rejected"}`） | - |
@@ -413,6 +415,17 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `AUTH_INVALID` | 401 | string | | 登录状态无效，请重新登录 | Could not validate credentials |
 | `USER_DISABLED` | 403 | string | | 账号已被停用 | This account has been disabled |
 | `ACCOUNT_PENDING` | 403 | string | | 账号尚未通过审批 | This account is pending approval |
+| `ACCOUNT_REJECTED` | 403 | string / dict | 有原因时 `reason`；`params.reason` | 账号未通过审核 | This account was not approved |
+| `REJECT_REASON_REQUIRED` | 400 | string | | 拒绝时必须填写 1–500 字原因 | A rejection reason of 1–500 characters is required |
+| `SSO_BIND_TICKET_INVALID` | 400 | string | | 绑定凭证无效 | Bind ticket is invalid |
+| `SSO_BIND_TICKET_EXPIRED` | 400 | string | | 绑定凭证已过期，请重新用成龈之美登录 | Bind ticket expired, please sign in with the identity provider again |
+| `SSO_BIND_TICKET_CONSUMED` | 400 | string | | 绑定凭证已使用 | Bind ticket has already been used |
+| `SSO_IDENTITY_ALREADY_BOUND` | 409 | string | | 该成龈之美账号已绑定其他用户 | This identity is already linked to another account |
+| `SSO_TARGET_ALREADY_BOUND` | 409 | string | | 该账号已绑定其他成龈之美身份 | This account is already linked to another identity |
+| `SSO_ORPHAN_PENDING` | 409 | dict | `orphan_username` | 该成龈之美账号曾创建过待审空号… | This identity was linked to a pending unused account… |
+| `SSO_CREATE_DISABLED` | 403 | string | | 不允许用成龈之美创建新账号 | Creating an account from this identity provider is disabled |
+| `SSO_UNBIND_PASSWORD_REQUIRED` | 400 | string | | 请先设置密码再解绑成龈之美 | Set a password before unlinking this identity |
+| `SSO_EMAIL_AMBIGUOUS` | 403 | string | | 该邮箱对应多个账号，无法自动关联 | Multiple accounts share this email |
 | `SESSION_REPLACED` | 401 | string | | `SESSION_REPLACED` | `SESSION_REPLACED` |
 | `NOT_FOUND` | 404 | string | | 资源不存在 | Not found |
 | `ADMIN_REQUIRED` | 403 | string | | 需要管理员权限 | Admin required |
@@ -567,5 +580,7 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `POST` | `{api_prefix}/oauth/authorize` | JSON。已登录。200 `{code, state, redirect_uri, expires_in}` |
 | `POST` | `{api_prefix}/oauth/token` | 仅 form。`Cache-Control: no-store`。200 `{access_token, id_token, token_type, expires_in, scope}` |
 | `GET` | `{api_prefix}/oauth/userinfo` | SSO access_token。`sub` + `email` / `email_verified` / `name` / `preferred_username` / `username` |
+
+RP 的 `/sso/bind-existing`、`/sso/create-account`、`/sso/bind/start`、`/sso/binding`、`/sso/unbind` **由宿主注册**。kit 只提供 `bind_ticket` / `verify_bind_target` / `provision_user`。前端 `AccountClientOptions.ssoPaths` 指向宿主路径。见 [sso.md](sso.md)。
 
 OAuth 错误另有顶层 `error` 与 `error_description`。

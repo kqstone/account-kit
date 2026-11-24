@@ -76,7 +76,20 @@ if (zhErr.join() !== enErr.join()) {
 const labels = read(vue, "labels.ts")
 if (!/export type AccountMessagesOverride/.test(labels)) fail("AccountMessagesOverride type missing from labels.ts")
 if (!/export type AccountLocaleMessages/.test(labels)) fail("AccountLocaleMessages type missing from labels.ts")
-for (const name of ["twoFactorZh", "twoFactorEn", "profileZh", "profileEn", "formZh", "formEn", "wechatZh", "wechatEn"]) {
+for (const name of [
+  "twoFactorZh",
+  "twoFactorEn",
+  "profileZh",
+  "profileEn",
+  "formZh",
+  "formEn",
+  "wechatZh",
+  "wechatEn",
+  "ssoZh",
+  "ssoEn",
+  "approvalZh",
+  "approvalEn",
+]) {
   extractNamedObject(labels, name)
 }
 const pairs = [
@@ -84,6 +97,8 @@ const pairs = [
   ["profileZh", "profileEn"],
   ["formZh", "formEn"],
   ["wechatZh", "wechatEn"],
+  ["ssoZh", "ssoEn"],
+  ["approvalZh", "approvalEn"],
 ]
 for (const [a, b] of pairs) {
   const ka = objectKeys(extractNamedObject(labels, a)).sort()

@@ -11,6 +11,7 @@ from account_kit.approval import assert_login_allowed, count_pending, provision_
 from account_kit.bind_target import lookup_bind_user, verify_bind_target
 from account_kit.bind_ticket import (
     attach_mfa_challenge,
+    find_bind_ticket_by_mfa,
     consume_bind_ticket,
     issue_bind_ticket,
     load_bind_ticket,
@@ -199,6 +200,7 @@ __all__ = [
     "apply_admin_user_patch",
     "assert_login_allowed",
     "attach_mfa_challenge",
+    "find_bind_ticket_by_mfa",
     "consume_bind_ticket",
     "count_pending",
     "create_role",

@@ -3,16 +3,14 @@ import {
   AccountApiError,
   ensureAccountStyle,
   type AccountClient,
-  type LoginSecondFactorResult,
   type TokenPair,
   type WechatBindStatus,
   type WechatStartResult,
 } from "./client"
+import { BindExistingAccountForm } from "./bindExisting"
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, resolveWechatLabels, type FormLabels, type WechatLabels } from "./labels"
-import { getMfaChallenge, type MfaChallenge } from "./mfa"
-import { TwoFactorLoginDialog } from "./twoFactor"
 import { formatError, interpolate, textOf, type DeepPartial } from "./utils"
 
 function field(label: string, input: ReturnType<typeof h>) {
@@ -48,21 +46,15 @@ export const WechatQrLogin = defineComponent({
     const expiresLeft = ref(0)
     const scannedName = ref("")
     const tab = ref<"bind" | "register">("bind")
-    const bindForce = ref(false)
     const username = ref("")
     const password = ref("")
     const email = ref("")
     const code = ref("")
     const sending = ref(false)
     const busy = ref(false)
-    const mfa = ref<(MfaChallenge & { username?: string }) | null>(null)
-    const captchaNeeded = ref(false)
-    const captchaId = ref("")
-    const captchaImage = ref("")
-    const captchaCode = ref("")
+    const ticket = ref("")
     let pollTimer: ReturnType<typeof setInterval> | null = null
     let tickTimer: ReturnType<typeof setInterval> | null = null
-    let ticket = ""
 
     function stop() {
       if (pollTimer) clearInterval(pollTimer)
@@ -72,9 +64,9 @@ export const WechatQrLogin = defineComponent({
     }
 
     async function cancel() {
-      if (ticket) {
+      if (ticket.value) {
         try {
-          await props.client.cancelWechatLogin(ticket)
+          await props.client.cancelWechatLogin(ticket.value)
         } catch {
           /* ignore */
         }
@@ -84,13 +76,12 @@ export const WechatQrLogin = defineComponent({
     async function start() {
       stop()
       error.value = ""
-      mfa.value = null
       scannedName.value = ""
       phase.value = "loading"
       try {
-        const data = await props.client.startWechatLogin({ deviceName: props.deviceName, force: props.force || bindForce.value })
+        const data = await props.client.startWechatLogin({ deviceName: props.deviceName, force: props.force })
         started.value = data
-        ticket = data.ticket
+        ticket.value = data.ticket
         expiresLeft.value = Number(data.expires_in) || 120
         phase.value = "qr"
         pollTimer = setInterval(() => void poll(), Math.max(500, props.pollMs || 2000))
@@ -115,14 +106,14 @@ export const WechatQrLogin = defineComponent({
     }
 
     async function poll() {
-      if (!ticket) return
+      if (!ticket.value) return
       try {
-        const data = await props.client.wechatLoginStatus(ticket)
+        const data = await props.client.wechatLoginStatus(ticket.value)
         if (data.status === "scanned" && data.username) scannedName.value = data.username
         if (data.status === "unbound") {
           stop()
           phase.value = "unbound"
-          emit("unbound", { bindTicket: data.bind_ticket || ticket })
+          emit("unbound", { bindTicket: data.bind_ticket || ticket.value })
           return
         }
         if (data.status === "expired" || data.status === "cancelled") {
@@ -139,88 +130,6 @@ export const WechatQrLogin = defineComponent({
       }
     }
 
-    async function loadCaptcha() {
-      captchaId.value = ""
-      captchaImage.value = ""
-      captchaCode.value = ""
-      if (typeof props.client.captcha !== "function") return
-      try {
-        const data = await props.client.captcha()
-        captchaId.value = data.captcha_id || ""
-        captchaImage.value = data.image_base64 ? `data:image/png;base64,${data.image_base64}` : ""
-      } catch {
-        error.value = F.value.captchaLoadFailed
-      }
-    }
-
-    async function submitBind() {
-      if (busy.value || !ticket) return
-      error.value = ""
-      if (captchaNeeded.value && (!captchaId.value || !captchaCode.value.trim())) {
-        error.value = F.value.captchaEnter
-        return
-      }
-      busy.value = true
-      const usedCaptcha = captchaNeeded.value
-      try {
-        const tokens = await props.client.wechatBindExisting({
-          bindTicket: ticket,
-          username: username.value.trim(),
-          password: password.value,
-          force: bindForce.value || props.force,
-          deviceName: props.deviceName,
-          captchaId: usedCaptcha ? captchaId.value : undefined,
-          captchaCode: usedCaptcha ? captchaCode.value.trim() : undefined,
-        })
-        captchaNeeded.value = false
-        emit("success", tokens.access_token, { tokens, username: username.value })
-      } catch (err) {
-        const body = err instanceof AccountApiError ? err.body : null
-        const detail =
-          body && typeof body === "object" && "detail" in body
-            ? (body as {
-                detail?: { code?: string; device_name?: string; challenge_token?: string; captcha_required?: boolean }
-              }).detail
-            : null
-        const status = err instanceof AccountApiError ? err.status : 0
-        const detailCode = detail && typeof detail === "object" ? detail.code : undefined
-        if (usedCaptcha) captchaNeeded.value = false
-        if (
-          status === 428 ||
-          detailCode === "CAPTCHA_REQUIRED" ||
-          detailCode === "CAPTCHA_INVALID" ||
-          (detail && typeof detail === "object" && detail.captcha_required)
-        ) {
-          captchaNeeded.value = true
-          await loadCaptcha()
-          error.value =
-            detailCode === "CAPTCHA_INVALID"
-              ? F.value.captchaInvalid
-              : status === 428 || detailCode === "CAPTCHA_REQUIRED"
-                ? F.value.captchaEnter
-                : formatError(err, F.value, locale.value)
-          return
-        }
-        const challenge = getMfaChallenge(err)
-        if (challenge) {
-          mfa.value = { ...challenge, username: username.value }
-          return
-        }
-        const codeName = err instanceof AccountApiError ? err.code : ""
-        if (status === 409 && codeName === "ALREADY_LOGGED_IN") {
-          bindForce.value = true
-          emit("conflict", err)
-          error.value = interpolate(F.value.alreadyLoggedIn, {
-            device: (detail && typeof detail === "object" && detail.device_name) || F.value.errors.UNKNOWN_DEVICE,
-          })
-          return
-        }
-        error.value = formatError(err, F.value, locale.value)
-      } finally {
-        busy.value = false
-      }
-    }
-
     async function sendRegisterCode() {
       sending.value = true
       error.value = ""
@@ -234,12 +143,12 @@ export const WechatQrLogin = defineComponent({
     }
 
     async function submitRegister() {
-      if (busy.value || !ticket) return
+      if (busy.value || !ticket.value) return
       busy.value = true
       error.value = ""
       try {
         const body = await props.client.wechatRegister({
-          bind_ticket: ticket,
+          bind_ticket: ticket.value,
           username: username.value.trim(),
           email: email.value.trim(),
           password: password.value,
@@ -287,24 +196,22 @@ export const WechatQrLogin = defineComponent({
         )
         if (tab.value === "bind") {
           children.push(
-            h("form", { class: "ak-form", onSubmit: (event: Event) => { event.preventDefault(); void submitBind() } }, [
-              field(forms.username, h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
-              field(forms.password, h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (event: Event) => { password.value = textOf(event) } })),
-              captchaNeeded.value
-                ? h(CodeInputRow, {
-                    label: forms.captcha,
-                    modelValue: captchaCode.value,
-                    placeholder: forms.captchaPlaceholder,
-                    imageSrc: captchaImage.value || "",
-                    buttonText: forms.captchaRefresh,
-                    "onUpdate:modelValue": (v: string) => { captchaCode.value = v },
-                    onImageClick: () => void loadCaptcha(),
-                    onButtonClick: () => void loadCaptcha(),
-                  })
-                : null,
-              error.value ? h("p", { class: "ak-error" }, error.value) : null,
-              h("button", { type: "submit", disabled: busy.value }, busy.value ? forms.loggingIn : bindForce.value ? forms.forceLogin : labels.bindExisting),
-            ]),
+            h(BindExistingAccountForm, {
+              client: props.client,
+              bindTicket: ticket.value,
+              bindExisting: (payload: Parameters<AccountClient["wechatBindExisting"]>[0]) => props.client.wechatBindExisting(payload),
+              deviceName: props.deviceName,
+              force: props.force,
+              language: locale.value,
+              labels: props.formLabels,
+              usernameLabel: forms.username,
+              submitLabel: labels.bindExisting,
+              completeMfaViaLogin2fa: true,
+              onSuccess: (token: string, extra?: { tokens?: TokenPair; username?: string }) => {
+                emit("success", token, extra)
+              },
+              onConflict: (err: unknown) => emit("conflict", err),
+            }),
           )
         } else {
           children.push(
@@ -324,27 +231,6 @@ export const WechatQrLogin = defineComponent({
         children.push(h("p", { class: "ak-muted" }, interpolate(labels.expiresIn, { s: String(expiresLeft.value) })))
         if (phase.value === "error" && error.value) children.push(h("p", { class: "ak-error" }, error.value))
         children.push(h("button", { type: "button", class: "ak-btn ak-btn-outline", onClick: () => void start() }, labels.refresh))
-      }
-      if (mfa.value) {
-        children.push(
-          h(TwoFactorLoginDialog, {
-            client: props.client,
-            challenge: mfa.value,
-            deviceName: props.deviceName,
-            force: bindForce.value || props.force,
-            language: locale.value,
-            onSuccess: (data: LoginSecondFactorResult) => {
-              mfa.value = null
-              emit("success", data.access_token, { tokens: data })
-            },
-            onExpired: () => {
-              mfa.value = null
-            },
-            onCancel: () => {
-              mfa.value = null
-            },
-          }),
-        )
       }
       return h("div", { class: rootClass }, children)
     }

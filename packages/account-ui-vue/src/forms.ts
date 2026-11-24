@@ -207,6 +207,7 @@ export const RegisterForm = defineComponent({
     const error = ref("")
     const busy = ref(false)
     const sending = ref(false)
+    const pending = ref(false)
 
     onMounted(async () => {
       try {
@@ -248,6 +249,7 @@ export const RegisterForm = defineComponent({
           role: role.value || undefined,
           ...(props.extraPayload || {}),
         })
+        pending.value = (user as { approval_status?: string } | null)?.approval_status === "pending"
         emit("success", user)
       } catch (err) {
         error.value = formatError(err, L.value, locale.value)
@@ -292,6 +294,7 @@ export const RegisterForm = defineComponent({
               )
             : null,
           slots.default?.(),
+          pending.value ? h("p", { class: "ak-success" }, L.value.registerPending) : null,
           error.value ? h("p", { class: "ak-error" }, error.value) : null,
           h("button", { type: "submit", disabled: busy.value }, busy.value ? L.value.submitting : L.value.register),
         ],

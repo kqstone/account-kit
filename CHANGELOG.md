@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.7.0
+
+审批核心与 SSO bind-ticket 下沉到 kit。未知 SSO 身份不再静默建号；被拒账号错误码从 `ACCOUNT_PENDING` 拆出 `ACCOUNT_REJECTED`。
+
+**破坏性 / 行为变化**
+
+- 拒绝账号登录与拦截返回 `ACCOUNT_REJECTED`（可带 `params.reason`），不再用 `ACCOUNT_PENDING`。过渡期 UI 仍认 `USER_PENDING` / `USER_REJECTED`。
+- 未知 SSO 身份（未命中 `sso_links`、邮箱未命中或 `email_verified=false`）**不再** `create_user`。宿主应签发 `bind_ticket`，前端二选一：绑定已有账号 / 创建新账号。
+- 邮箱域名限制只约束 **create-account** 与邮箱注册，不约束 bind-existing。
+- 默认 `sso_email_auto_link=True`：IdP email 命中本地唯一账号则自动写 link。`email_verified=false` 或缺省不自动关联。
+- kit **不**注册 RP 路由、不持有 `sso_links`。实际 URL 由 `AccountClientOptions.ssoPaths` / `adminPrefix` 配置。
+
+**后端**
+
+- `auth.users` 新增 `approval_reason` / `approval_decided_by` / `approval_decided_at`。`auth.bind_tickets` 新表。迁移：`sql/upgrade_0_7_0.sql` / `upgrade_sql("0.7.0")`；`ensure_schema` / `init_db` 幂等。
+- `approval.py`：`provision_user`、`assert_login_allowed`、`set_user_approval`、`count_pending`。一个 `require_approval` 同时管邮箱注册、SSO 开户、微信注册。管理员手工建号始终 approved。开关改否不批量放行已有 pending。
+- 专用 `PATCH {admin_prefix}/users/{id}/approval`：拒绝必填 1–`approval_reason_max` 字。通用 `PATCH .../users/{id}` 无原因拒绝仍允许（兼容 0.6.0）。`GET .../users?approval_status=`、`GET .../users/pending-count`。
+- `bind_ticket.py`：Fernet 一次票，默认 600s；消费 `SELECT FOR UPDATE` + `populate_existing`，避免同 Session 先 load 再锁时读到 identity-map 旧 issued 值。
+- `verify_bind_target()`：密码 + captcha + lockout + 审批 + 可选禁管理员 + 2FA。微信 bind-existing 内部改调它（`forbid_admin=False`）。
+- SSO 邮箱 MFA 挑战挂在 bind_ticket 上：可走 `POST /login/2fa/email/send` 发码；`POST /login/2fa` 若命中 SSO ticket 返回 `SSO_BIND_TICKET_INVALID`，必须二次 POST 宿主 bind-existing（ticket 不消费）。微信仍走 `complete_pending_wechat_bind`。
+- 邮件：`approval_approved` / `approval_rejected` / `admin_pending`。SMTP 或 `admin_notify_emails` 空则跳过。
+- 被拒重新申请一期不进 kit。
+
+**前端（React / Vue 能力与导出一致）**
+
+- `AccountUser` 审批字段；`formatError` 新码 + 拒绝原因；`RegisterForm` pending 文案；`ApprovalStatusBadge`；`client.admin.setApproval` / `pendingCount`。
+- `BindExistingAccountForm`（用户名或邮箱 / 密码 / captcha / 2FA / 错误 / reclaim）。
+- `SsoBindPanel`：身份摘要、绑定 / 无密码创建、`allowCreate`、倒计时失效、MFA 再 POST 宿主 bind-existing 且保留票、reclaim 确认与冲突。
+- `SsoBindSettings`：绑定跳转、邮箱掩码、解绑密码+2FA、`password_set===false` 先设密码门闩。
+- `WechatQrLogin` 绑定 Tab 复用共享表单，原 captcha / MFA 行为保留。
+
+**宿主接入要点**
+
+```python
+from account_kit.approval import provision_user, assert_login_allowed
+from account_kit.bind_ticket import issue_bind_ticket, consume_bind_ticket
+from account_kit.bind_target import verify_bind_target
+
+raw, ttl = await issue_bind_ticket(db, get_config(), claims=claims, ip=ip)
+user = await verify_bind_target(db, get_config(), request, username=..., password=...)
+# 宿主写 sso_links（捕获 IntegrityError）后：
+ticket, claims = await consume_bind_ticket(db, raw, config=get_config(), commit=False)
+await db.commit()
+```
+
+个人中心：解绑前 `password_set` 必须为 true。reclaim 仅当占用方 `pending + password_set=false + approved_at is NULL`；空号不自动删除。
+
+部署后清点历史 pending 空号（`sso_links` 在宿主）：
+
+```sql
+SELECT u.id, u.username, u.email, u.approval_status, u.password_set, u.approved_at, l.issuer, l.subject
+FROM public.sso_links l
+JOIN auth.users u ON u.id = l.user_id
+WHERE u.approval_status = 'pending' AND u.password_set = false AND u.approved_at IS NULL;
+```
+
 ## 0.6.0
 
 新增登录外壳 `AuthShell` 与验证码行 `CodeInputRow`（React / Vue，DOM 与 class 一致），默认文案精简。后端无改动、无迁移。
