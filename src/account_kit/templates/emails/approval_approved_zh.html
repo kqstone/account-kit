@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <style>
+        body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .footer { margin-top: 30px; font-size: 12px; color: #888; border-top: 1px solid #eee; padding-top: 10px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h3>尊敬的 {{ username or "用户" }}，您好！</h3>
+        <p>您在 <strong>{{ brand }}</strong> 的账号已通过审核，现在可以登录使用。</p>
+        {% if public_base_url %}<p>登录地址：{{ public_base_url }}</p>{% endif %}
+        <div class="footer">
+            <p>本邮件由 {{ brand }} 系统自动发送，请勿直接回复。</p>
+        </div>
+    </div>
+</body>
+</html>

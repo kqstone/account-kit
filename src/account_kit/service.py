@@ -276,26 +276,22 @@ async def register_user(db: AsyncSession, config: AccountKitConfig, payload: Reg
     else:
         role = await default_role(db)
 
-    now = datetime.now(timezone.utc)
-    approved = not config.require_approval
-    user = User(
+    from account_kit.approval import provision_user
+
+    user = await provision_user(
+        db,
+        config,
         username=username,
-        email=normalize_email(payload.email),
-        hashed_password=hash_password(payload.password),
+        email=payload.email,
+        password=payload.password,
+        role=role.code,
         full_name=payload.full_name,
         institution=payload.institution,
-        gender=normalize_gender(payload.gender),
-        birth_year_month=birth_year_month_to_date(payload.birth_year_month),
-        role=role.code,
-        is_admin=False,
-        is_active=True,
-        approval_status="approved" if approved else "pending",
-        approved_at=now if approved else None,
+        source="register",
+        commit=False,
     )
-    db.add(user)
-    await db.flush()
-    tier = await default_tier(db)
-    db.add(UserTierAssignment(user_id=user.id, tier_code=tier.code))
+    user.gender = normalize_gender(payload.gender)
+    user.birth_year_month = birth_year_month_to_date(payload.birth_year_month)
     if config.on_registered is not None:
         await config.on_registered(db, user, payload)
     await db.commit()
@@ -346,10 +342,9 @@ async def login_user_tokens(
     password_ok = verify_password(password, hashed)
     if not user or not password_ok:
         raise account_error(401, "INVALID_CREDENTIALS", headers={"WWW-Authenticate": "Bearer"})
-    if not user.is_active:
-        raise account_error(403, "USER_DISABLED")
-    if user.approval_status != "approved":
-        raise account_error(403, "ACCOUNT_PENDING")
+    from account_kit.approval import assert_login_allowed
+
+    assert_login_allowed(user)
 
     if config.two_factor_enabled and not mfa_satisfied:
         from account_kit.two_factor.service import is_enabled, mfa_required, trusted_device_ok

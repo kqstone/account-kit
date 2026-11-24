@@ -445,10 +445,9 @@ async def confirm_login(db: AsyncSession, config: AccountKitConfig, request, *, 
     user = await get_user_by_id(db, ticket.user_id)
     if user is None:
         raise account_error(401, "WECHAT_NOT_BOUND")
-    if not user.is_active:
-        raise account_error(403, "USER_DISABLED")
-    if user.approval_status != "approved":
-        raise account_error(403, "ACCOUNT_PENDING")
+    from account_kit.approval import assert_login_allowed
+
+    assert_login_allowed(user)
     if not config.wechat_satisfies_mfa:
         from account_kit.two_factor.service import is_enabled
 
@@ -616,14 +615,15 @@ async def bind_existing(
             raise await captcha.invalid_credentials(db, config, ip, name, {"WWW-Authenticate": "Bearer"})
         raise account_error(401, "INVALID_CREDENTIALS", headers={"WWW-Authenticate": "Bearer"})
     user = candidate
-    if not user.is_active:
+    from account_kit.approval import assert_login_allowed
+    from account_kit.i18n import AccountError
+
+    try:
+        assert_login_allowed(user)
+    except AccountError:
         if use_captcha:
             await captcha.clear_failures(db, config, ip, name)
-        raise account_error(403, "USER_DISABLED")
-    if user.approval_status != "approved":
-        if use_captcha:
-            await captcha.clear_failures(db, config, ip, name)
-        raise account_error(403, "ACCOUNT_PENDING")
+        raise
     if use_captcha:
         await captcha.clear_failures(db, config, ip, name)
     await clear_lockout(db, config, user, name)

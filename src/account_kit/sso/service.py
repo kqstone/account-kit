@@ -110,10 +110,9 @@ def _pkce_ok(verifier: str, challenge: str) -> bool:
 
 
 def assert_sso_user(user: User) -> None:
-    if not user.is_active:
-        raise account_error(403, "USER_DISABLED")
-    if user.approval_status != "approved":
-        raise account_error(403, "ACCOUNT_PENDING")
+    from account_kit.approval import assert_login_allowed
+
+    assert_login_allowed(user)
     if user.is_admin:
         raise sso_error("SSO_ADMIN_FORBIDDEN")
     if not user_has_sso_email(user):

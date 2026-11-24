@@ -72,6 +72,10 @@ class User(Base):
     # pending | approved | rejected
     approval_status = Column(String(20), nullable=False, default="approved", server_default="approved")
     approved_at = Column(DateTime(timezone=True), nullable=True)
+    # Latest decision: reason is cleared on approve; decided_by is ``admin:<username>`` or host-supplied.
+    approval_reason = Column(Text, nullable=True)
+    approval_decided_by = Column(String(255), nullable=True)
+    approval_decided_at = Column(DateTime(timezone=True), nullable=True)
     current_session_id = Column(String(64), nullable=True)
     session_last_seen_at = Column(DateTime(timezone=True), nullable=True)
     session_device_name = Column(String(64), nullable=True)
@@ -338,4 +342,29 @@ class OAuthAuthorizationCode(Base):
     replayed_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     created_ip = Column(String(64), nullable=True)
+
+
+# --- 0.7.0: SSO bind tickets (new table) + approval decision columns on users -
+
+
+class BindTicket(Base):
+    __tablename__ = "bind_tickets"
+    __table_args__ = (
+        UniqueConstraint("ticket_hash"),
+        Index("ix_auth_bind_tickets_expires_at", "expires_at"),
+        Index("ix_auth_bind_tickets_mfa_challenge_hash", "mfa_challenge_hash"),
+        AUTH,
+    )
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    ticket_hash = Column(String(64), nullable=False)
+    purpose = Column(String(32), nullable=False)
+    status = Column(String(16), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey("auth.users.id", ondelete="SET NULL"), nullable=True, index=True)
+    created_ip = Column(String(64), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    payload_cipher = Column(Text, nullable=True)
+    mfa_challenge_hash = Column(String(64), nullable=True)
 

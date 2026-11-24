@@ -44,6 +44,9 @@ def _ensure_single_admin_index_sync(conn) -> None:
 # Columns added after a table first shipped; create_all does not alter existing tables.
 _COLUMN_UPGRADES = (
     "ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS password_set BOOLEAN NOT NULL DEFAULT true",
+    "ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS approval_reason TEXT",
+    "ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS approval_decided_by VARCHAR(255)",
+    "ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS approval_decided_at TIMESTAMPTZ",
 )
 
 
@@ -71,7 +74,7 @@ async def ensure_schema(engine: AsyncEngine) -> None:
     any missing kit tables, and the single-admin unique index (skipped with a
     warning if more than one admin already exists). Safe to run on every start.
     Equivalent SQL: account_kit/sql/upgrade_0_2_2.sql, upgrade_0_2_3.sql,
-    upgrade_0_4_0.sql, upgrade_0_5_0.sql, then upgrade_0_5_1.sql."""
+    upgrade_0_4_0.sql, upgrade_0_5_0.sql, upgrade_0_5_1.sql, then upgrade_0_7_0.sql."""
     await init_db(engine)
 
 

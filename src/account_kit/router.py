@@ -303,10 +303,9 @@ async def refresh_tokens(body: RefreshRequest, request: Request, db: AsyncSessio
     user = await get_user_by_id(db, row.user_id)
     if user is None:
         raise refresh_error("REFRESH_INVALID")
-    if not user.is_active:
-        raise account_error(status.HTTP_403_FORBIDDEN, "USER_DISABLED")
-    if user.approval_status != "approved":
-        raise account_error(status.HTTP_403_FORBIDDEN, "ACCOUNT_PENDING")
+    from account_kit.approval import assert_login_allowed
+
+    assert_login_allowed(user)
     if user.is_admin and config.admin_refresh_disabled:
         raise refresh_error("REFRESH_INVALID")
     session_id = None
