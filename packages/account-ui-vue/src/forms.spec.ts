@@ -1,7 +1,7 @@
 import { flushPromises, mount } from "@vue/test-utils"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AccountClient } from "./client"
-import { LoginForm } from "./forms"
+import { LoginForm, RegisterForm } from "./forms"
 
 function mockClient() {
   return {
@@ -90,6 +90,43 @@ describe("LoginForm remember-login", () => {
     expect(emitted).toBeTruthy()
     expect(emitted![0][0]).toBe("tok")
     expect(emitted![0][1]).toMatchObject({ username: "dave", password: "secret1" })
+    wrapper.unmount()
+  })
+})
+
+describe("RegisterForm pending", () => {
+  afterEach(() => {
+    document.body.innerHTML = ""
+  })
+
+  it("shows registerPending when the created user is pending", async () => {
+    const client = {
+      roles: vi.fn().mockResolvedValue([]),
+      register: vi.fn().mockResolvedValue({ username: "ada", approval_status: "pending" }),
+      sendCode: vi.fn(),
+    }
+    const wrapper = mount(RegisterForm, {
+      props: { client: client as unknown as AccountClient },
+    })
+    await wrapper.find("form.ak-form").trigger("submit")
+    await flushPromises()
+    expect(wrapper.emitted("success")).toBeTruthy()
+    expect(wrapper.text()).toContain("注册成功，账号待管理员审批后方可登录")
+    wrapper.unmount()
+  })
+
+  it("does not show pending copy for an approved user", async () => {
+    const client = {
+      roles: vi.fn().mockResolvedValue([]),
+      register: vi.fn().mockResolvedValue({ username: "ada", approval_status: "approved" }),
+      sendCode: vi.fn(),
+    }
+    const wrapper = mount(RegisterForm, {
+      props: { client: client as unknown as AccountClient },
+    })
+    await wrapper.find("form.ak-form").trigger("submit")
+    await flushPromises()
+    expect(wrapper.text()).not.toContain("注册成功，账号待管理员审批后方可登录")
     wrapper.unmount()
   })
 })

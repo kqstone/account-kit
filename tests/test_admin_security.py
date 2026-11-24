@@ -350,4 +350,5 @@ async def test_approval_revoked_blocks_access(api):
     assert revoked.status_code == 200, revoked.text
     me = await api["client"].get("/api/auth/me", headers=bearer(body))
     assert me.status_code == 403
-    assert me.json()["detail"] == "账号尚未通过审批"
+    assert me.json()["code"] == "ACCOUNT_REJECTED"
+    assert me.json()["detail"] == "账号未通过审核"

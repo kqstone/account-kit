@@ -157,6 +157,16 @@ export async function patchAdminUser(userId: string, patch: Record<string, any>)
   })
 }
 
+export async function setAdminApproval(
+  userId: string,
+  body: { status: "approved" | "rejected"; reason?: string },
+): Promise<AccountUser> {
+  return adminFetch<AccountUser>(`/api/admin/account/users/${encodeURIComponent(userId)}/approval`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  })
+}
+
 export async function resetAdminUser2fa(userId: string): Promise<void> {
   return adminFetch<void>(`/api/admin/account/users/${encodeURIComponent(userId)}/2fa/reset`, {
     method: "POST",

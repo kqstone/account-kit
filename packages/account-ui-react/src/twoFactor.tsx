@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
-import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TrustedDevice, type TwoFactorStatus } from "./client"
+import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TokenPair, type TrustedDevice, type TwoFactorStatus } from "./client"
+
+type TokenPairLike = TokenPair & Partial<LoginSecondFactorResult>
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveTwoFactorLabels, type TwoFactorLabels } from "./labels"
 import {
@@ -497,6 +499,16 @@ export function TwoFactorSettings({
   )
 }
 
+export type TwoFactorVerifyPayload = {
+  challengeToken: string
+  code?: string
+  recoveryCode?: string
+  emailCode?: string
+  trustDevice?: boolean
+  force?: boolean
+  deviceName?: string
+}
+
 export function TwoFactorLoginDialog({
   client,
   challenge,
@@ -508,9 +520,12 @@ export function TwoFactorLoginDialog({
   className = "",
   scope = "",
   storageKey,
+  verify,
+  sendEmailCode,
   onSuccess,
   onExpired,
   onCancel,
+  onError,
 }: {
   client: AccountClient
   challenge: MfaChallenge | Record<string, unknown>
@@ -522,9 +537,18 @@ export function TwoFactorLoginDialog({
   className?: string
   scope?: string
   storageKey?: string
+  /** Override ``client.loginSecondFactor``. SSO bind re-POSTs host bind-existing. */
+  verify?: (payload: TwoFactorVerifyPayload) => Promise<LoginSecondFactorResult | TokenPairLike>
+  /** Override ``client.sendLoginEmailCode``. Default still uses the login-2FA send route. */
+  sendEmailCode?: (
+    challengeToken: string,
+    language?: string,
+  ) => Promise<{ email?: string; cooldown?: number; status?: string }>
   onSuccess: (data: LoginSecondFactorResult) => void
   onExpired?: (message: string) => void
   onCancel?: () => void
+  /** Outer-handleable errors (e.g. ``SSO_ORPHAN_PENDING``). Return true to keep the passed challengeToken. */
+  onError?: (error: unknown) => boolean | void
 }) {
   ensureAccountStyle()
   const locale = useKitLocale(language)
@@ -567,19 +591,25 @@ export function TwoFactorLoginDialog({
   const days = trustedDays || info?.trustedDays || 30
   const hint = factor === FACTOR_RECOVERY ? L.login.recoveryHint : factor === FACTOR_EMAIL ? L.login.emailHint : L.login.hint
 
-  async function submit(nextForce: boolean) {
+  async function submit(nextForce: boolean, overrides: { code?: string; recoveryCode?: string; emailCode?: string } = {}) {
     if (busy || !info) return
     setBusy(true)
     setError("")
     try {
-      const fields = mode === "conflict" ? { code: "", recoveryCode: "", emailCode: "" } : secondFactorFields(factor, factorInputs)
-      const data = await client.loginSecondFactor({
+      const fields =
+        mode === "conflict"
+          ? { code: "", recoveryCode: "", emailCode: "" }
+          : secondFactorFields(factor, { ...factorInputs, ...overrides })
+      const payload: TwoFactorVerifyPayload = {
         challengeToken: info.challengeToken,
         ...fields,
         trustDevice,
         force: nextForce,
         deviceName,
-      })
+      }
+      const data = (await (verify
+        ? verify(payload)
+        : client.loginSecondFactor(payload))) as LoginSecondFactorResult
       if (data.trusted_device_token && scope) {
         saveTrustedDeviceToken(scope, data.trusted_device_token, data.trusted_device_expires_at, storageKey)
       }
@@ -593,6 +623,8 @@ export function TwoFactorLoginDialog({
         setMode("conflict")
       } else if (errCode === "MFA_CHALLENGE_INVALID" || errCode === "MFA_TOO_MANY_ATTEMPTS") {
         onExpired?.(twoFactorErrorMessage(e, L))
+      } else if (onError?.(e)) {
+        // Outer handled (SSO_ORPHAN_PENDING, …); keep the passed challengeToken.
       } else {
         setError(twoFactorErrorMessage(e, L))
         if (factor === FACTOR_EMAIL) setEmailCode("")
@@ -608,7 +640,9 @@ export function TwoFactorLoginDialog({
     setBusy(true)
     setError("")
     try {
-      const res = await client.sendLoginEmailCode(info.challengeToken, locale)
+      const res = await (sendEmailCode
+        ? sendEmailCode(info.challengeToken, locale)
+        : client.sendLoginEmailCode(info.challengeToken, locale))
       setEmailMasked(res.email || "")
       startCooldown(Number(res.cooldown) || 60)
     } catch (e) {
@@ -664,7 +698,7 @@ export function TwoFactorLoginDialog({
                 onChange={(event) => {
                   const next = normalizeTotpInput(event.target.value)
                   setCode(next)
-                  if (next.length === 6 && !busy) void submit(force)
+                  if (next.length === 6 && !busy) void submit(force, { code: next })
                 }}
               />
             ) : factor === FACTOR_RECOVERY ? (

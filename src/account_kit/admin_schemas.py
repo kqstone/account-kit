@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -48,7 +48,13 @@ class AdminUserPatch(BaseModel):
     is_admin: Optional[bool] = None
     is_active: Optional[bool] = None
     approval_status: Optional[ApprovalStatus] = None
+    approval_reason: Optional[str] = None
     tier_code: Optional[str] = None
+
+
+class AdminUserApprovalBody(BaseModel):
+    status: Literal["approved", "rejected"]
+    reason: Optional[str] = None
 
 
 class RoleChangeCreate(BaseModel):

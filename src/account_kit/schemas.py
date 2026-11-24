@@ -95,6 +95,10 @@ class UserResponse(BaseModel):
     is_admin: bool
     is_active: bool
     approval_status: str
+    approval_reason: Optional[str] = None
+    approval_decided_by: Optional[str] = None
+    approval_decided_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
     password_set: bool = True
     has_custom_avatar: bool = False
     pending_role: Optional[str] = None

@@ -40,10 +40,9 @@ async def user_from_access_token(db: AsyncSession, raw: Optional[str]):
     user = await get_user_by_id(db, user_id)
     if user is None:
         raise credentials
-    if not user.is_active:
-        raise account_error(403, "USER_DISABLED")
-    if user.approval_status != "approved":
-        raise account_error(403, "ACCOUNT_PENDING")
+    from account_kit.approval import assert_login_allowed
+
+    assert_login_allowed(user)
 
     if config.session_mode == "single_device":
         sid = payload.get("sid")

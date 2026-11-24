@@ -92,6 +92,9 @@
                 <span v-if="user.approval_status === 'approved'" class="badge badge-green">{{ tt.statusApproved }}</span>
                 <span v-else-if="user.approval_status === 'pending'" class="badge badge-yellow">{{ tt.statusPending }}</span>
                 <span v-else class="badge badge-red">{{ tt.statusRejected }}</span>
+                <div v-if="user.approval_status === 'rejected' && user.approval_reason" style="font-size: 12px; color: var(--color-text-muted); margin-top: 4px">
+                  {{ tt.approvalReasonPrefix.replace("{reason}", user.approval_reason) }}
+                </div>
               </td>
               <td>
                 <span v-if="user.is_active" class="badge badge-green">{{ tt.statusActive }}</span>
@@ -118,7 +121,7 @@
                       type="button"
                       class="btn btn-secondary btn-sm"
                       :disabled="operatingId === user.id"
-                      @click="updateApproval(user, 'rejected')"
+                      @click="openReject(user)"
                     >
                       {{ tt.btnReject }}
                     </button>
@@ -173,6 +176,30 @@
         </table>
       </div>
     </div>
+
+    <div v-if="rejectUser" class="card" style="margin-top: 16px" role="dialog" aria-modal="true">
+      <h3>{{ tt.rejectReasonTitle }}</h3>
+      <p class="card-subtitle">{{ rejectUser.username }}</p>
+      <label class="form-label">
+        {{ tt.rejectReasonLabel }}
+        <textarea
+          v-model="rejectReason"
+          class="form-input"
+          rows="3"
+          maxlength="500"
+          :placeholder="tt.rejectReasonPlaceholder"
+        />
+      </label>
+      <p v-if="rejectError" class="alert alert-error">{{ rejectError }}</p>
+      <div style="display: flex; gap: 8px; margin-top: 12px">
+        <button type="button" class="btn btn-danger-outline" :disabled="operatingId === rejectUser.id" @click="confirmReject">
+          {{ tt.rejectReasonConfirm }}
+        </button>
+        <button type="button" class="btn btn-secondary" :disabled="operatingId === rejectUser.id" @click="closeReject">
+          {{ tt.rejectReasonCancel }}
+        </button>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -183,6 +210,7 @@ import {
   patchAdminUser,
   resetAdminUser2fa,
   deleteAdminUser,
+  setAdminApproval,
 } from "../api"
 import type { AccountUser } from "@kqstone/account-ui-vue"
 import { tt } from "../i18n"
@@ -194,6 +222,9 @@ const error = ref("")
 const successMsg = ref("")
 const searchTerm = ref("")
 const statusFilter = ref("")
+const rejectUser = ref<AccountUser | null>(null)
+const rejectReason = ref("")
+const rejectError = ref("")
 
 const filteredUsers = computed(() => {
   let list = users.value
@@ -224,12 +255,53 @@ async function loadUsers() {
   }
 }
 
+function openReject(user: AccountUser) {
+  rejectUser.value = user
+  rejectReason.value = ""
+  rejectError.value = ""
+}
+
+function closeReject() {
+  rejectUser.value = null
+  rejectReason.value = ""
+  rejectError.value = ""
+}
+
+async function confirmReject() {
+  const user = rejectUser.value
+  if (!user) return
+  const reason = rejectReason.value.trim()
+  if (!reason) {
+    rejectError.value = tt.value.rejectReasonRequired
+    return
+  }
+  error.value = ""
+  successMsg.value = ""
+  operatingId.value = user.id
+  try {
+    const updated = await setAdminApproval(user.id, { status: "rejected", reason })
+    const idx = users.value.findIndex((u) => u.id === user.id)
+    if (idx !== -1) users.value[idx] = updated
+    successMsg.value = tt.value.userApprovalUpdated
+      .replace("{username}", user.username)
+      .replace("{status}", tt.value.statusRejected)
+    closeReject()
+  } catch (err: any) {
+    rejectError.value = err.message || tt.value.updateApprovalFailed
+  } finally {
+    operatingId.value = null
+  }
+}
+
 async function updateApproval(user: AccountUser, status: "approved" | "rejected") {
   error.value = ""
   successMsg.value = ""
   operatingId.value = user.id
   try {
-    const updated = await patchAdminUser(user.id, { approval_status: status })
+    const updated =
+      status === "approved"
+        ? await setAdminApproval(user.id, { status: "approved" })
+        : await patchAdminUser(user.id, { approval_status: status })
     const idx = users.value.findIndex((u) => u.id === user.id)
     if (idx !== -1) users.value[idx] = updated
     const statusText = status === "approved" ? tt.value.statusApproved : tt.value.statusRejected

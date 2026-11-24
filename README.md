@@ -9,9 +9,11 @@
 
 ---
 
-## 功能列表 (0.6.0)
+## 功能列表 (0.7.0)
 
 - **核心认证**：账号密码注册与登录、邮箱验证码流转、管理员注册审批机制、单设备互踢会话模式 (`single_device`)、自定义业务角色与用户等级目录、后台管理员权限 (`is_admin`) 隔离。
+- **审批下沉（0.7.0）**：`approval_reason` / `decided_by` / `decided_at`；一个 `require_approval` 管邮箱注册、SSO 开户、微信注册；专用 `/approval` 接口拒绝必填原因；被拒返回 `ACCOUNT_REJECTED`。详见 [docs/upgrade.md](docs/upgrade.md)。
+- **SSO 绑定已有用户（0.7.0）**：kit 签发一次性 `bind_ticket` + `verify_bind_target`；未知身份不再静默建号。RP 路由与 `sso_links` 留宿主。默认邮箱自动关联，`email_verified=false` 不自动。双 UI：`BindExistingAccountForm` / `SsoBindPanel` / `SsoBindSettings`。
 - **两步验证 (2FA / MFA)**：基于 TOTP 标准的时间戳动态口令、应急备用恢复码、受信设备免验证保持、邮箱验证码作为备用第二因素（用于免验证器登录或紧急解绑）。
 - **微信小程序码登录**：网页/App 展示小程序码，扫码确认后该端拿到与密码登录相同的主会话 token。小程序不发 JWT、无伴生会话。模块默认关闭。详见 [docs/wechat.md](docs/wechat.md)。
 - **OIDC Identity Provider**：可选 Authorization Code + PKCE；`id_token` 与登录 JWT 隔离。默认关闭。详见 [docs/sso.md](docs/sso.md)。

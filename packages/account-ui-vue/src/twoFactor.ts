@@ -1,5 +1,5 @@
 import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
-import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TrustedDevice, type TwoFactorStatus } from "./client"
+import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TokenPair, type TrustedDevice, type TwoFactorStatus } from "./client"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveTwoFactorLabels, type TwoFactorLabels } from "./labels"
 import {
@@ -20,6 +20,16 @@ import {
 import { renderQrDataUrl, type RenderQr } from "./qr"
 import { clearTrustedDeviceTokensForUser, saveTrustedDeviceToken } from "./trustedDevice"
 import { formatDateTime, interpolate, textOf, type DeepPartial } from "./utils"
+
+export type TwoFactorVerifyPayload = {
+  challengeToken: string
+  code?: string
+  recoveryCode?: string
+  emailCode?: string
+  trustDevice?: boolean
+  force?: boolean
+  deviceName?: string
+}
 
 function btn(kind: "primary" | "outline" | "danger" | "link", label: string, opts: { disabled?: boolean; onClick?: () => void; submit?: boolean; extraClass?: string }) {
   const cls =
@@ -458,6 +468,20 @@ export const TwoFactorLoginDialog = defineComponent({
     className: { type: String, default: "" },
     scope: { type: String, default: "" },
     storageKey: { type: String, default: undefined },
+    verify: {
+      type: Function as PropType<(payload: TwoFactorVerifyPayload) => Promise<LoginSecondFactorResult | TokenPair>>,
+      default: null,
+    },
+    sendEmailCode: {
+      type: Function as PropType<
+        (challengeToken: string, language?: string) => Promise<{ email?: string; cooldown?: number; status?: string }>
+      >,
+      default: null,
+    },
+    handleError: {
+      type: Function as PropType<(error: unknown) => boolean | void>,
+      default: null,
+    },
   },
   emits: ["success", "expired", "cancel"],
   setup(props, { emit, attrs }) {
@@ -503,13 +527,16 @@ export const TwoFactorLoginDialog = defineComponent({
       error.value = ""
       try {
         const fields = mode.value === "conflict" ? { code: "", recoveryCode: "", emailCode: "" } : secondFactorFields(factor.value, inputs())
-        const data = await props.client.loginSecondFactor({
+        const payload: TwoFactorVerifyPayload = {
           challengeToken: info.challengeToken,
           ...fields,
           trustDevice: trustDevice.value,
           force,
           deviceName: props.deviceName,
-        })
+        }
+        const data = (await (props.verify
+          ? props.verify(payload)
+          : props.client.loginSecondFactor(payload))) as LoginSecondFactorResult
         if (data.trusted_device_token && props.scope) {
           saveTrustedDeviceToken(props.scope, data.trusted_device_token, data.trusted_device_expires_at, props.storageKey)
         }
@@ -523,6 +550,8 @@ export const TwoFactorLoginDialog = defineComponent({
           mode.value = "conflict"
         } else if (errCode === "MFA_CHALLENGE_INVALID" || errCode === "MFA_TOO_MANY_ATTEMPTS") {
           emit("expired", twoFactorErrorMessage(e, labels))
+        } else if (props.handleError && props.handleError(e)) {
+          // Outer handled (SSO_ORPHAN_PENDING, …); keep the passed challengeToken.
         } else {
           error.value = twoFactorErrorMessage(e, labels)
           if (factor.value === FACTOR_EMAIL) emailCode.value = ""
@@ -541,7 +570,9 @@ export const TwoFactorLoginDialog = defineComponent({
       busy.value = true
       error.value = ""
       try {
-        const res = await props.client.sendLoginEmailCode(info.challengeToken, locale.value)
+        const res = await (props.sendEmailCode
+          ? props.sendEmailCode(info.challengeToken, locale.value)
+          : props.client.sendLoginEmailCode(info.challengeToken, locale.value))
         emailMasked.value = res.email || ""
         startCooldown(Number(res.cooldown) || 60)
       } catch (e) {

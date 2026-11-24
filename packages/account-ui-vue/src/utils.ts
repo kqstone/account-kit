@@ -40,12 +40,20 @@ export function errorParamsOf(error: unknown): Record<string, string | number> {
   }
   const detail = body.detail
   if (detail && typeof detail === "object") {
-    for (const key of ["attempts_left", "retry_after", "device_name", "allowed"]) {
+    for (const key of ["attempts_left", "retry_after", "device_name", "allowed", "reason", "orphan_username"]) {
       const value = (detail as Record<string, unknown>)[key]
       if (typeof value === "string" || typeof value === "number") out[key] = value
     }
   }
   return out
+}
+
+/** Map host transitional codes (dedd ``USER_*``) onto kit 0.7.0 codes. */
+export function canonicalErrorCode(code?: string | null): string | undefined {
+  if (!code) return undefined
+  if (code === "USER_PENDING") return "ACCOUNT_PENDING"
+  if (code === "USER_REJECTED" || code === "USER_REJECTED_WITH_REASON") return "ACCOUNT_REJECTED"
+  return code
 }
 
 export function formatError(
@@ -55,9 +63,11 @@ export function formatError(
 ): string {
   const loc = resolveLocale(locale)
   const fallback = labels?.error || labels?.errors?.REQUEST_FAILED || defaultErrorLabels[loc].REQUEST_FAILED
-  const code = errorCodeOf(error)
+  let code = canonicalErrorCode(errorCodeOf(error))
+  const params = errorParamsOf(error)
+  if (code === "ACCOUNT_REJECTED" && params.reason) code = "ACCOUNT_REJECTED_WITH_REASON"
   const table: Record<string, string> = { ...defaultErrorLabels[loc], ...(labels?.errors || {}) }
-  if (code && table[code]) return interpolate(table[code], errorParamsOf(error))
+  if (code && table[code]) return interpolate(table[code], params)
   return messageOf(error, fallback)
 }
 

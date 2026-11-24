@@ -47,8 +47,15 @@ from account_kit.config import AccountKitConfig, SmtpConfig
 | `password_min_length` | `int` | `6` | 密码最小字符长度限制 |
 | `forbid_admin_like_usernames` | `bool` | `False` | 是否禁止注册包含 `admin` 等敏感字样的用户名 |
 | `reserved_usernames` | `Tuple[str, ...]` | `()` | 系统保留不可注册的用户名列表元组 |
-| `require_approval` | `bool` | `False` | 是否开启新注册用户需管理员审批后方可登录 |
-| `email_domain_restriction` | `bool` | `False` | 是否开启邮箱后缀白名单限制 |
+| `require_approval` | `bool` | `False` | **一个开关**同时管邮箱注册、SSO **创建新号**、微信注册。绑定已有账号只看目标号自己的 `approval_status`。关掉不批量放行已有 pending。管理员手工建号始终 approved |
+| `approval_reason_max` | `int` | `500` | 专用审批接口拒绝原因最大字数 |
+| `approval_emails_enabled` | `bool` | `True` | 是否发送通过 / 拒绝 / 管理员待审邮件 |
+| `admin_notify_emails` | `Tuple[str, ...]` | `()` | 待审通知管理员邮箱；空则跳过 |
+| `public_base_url` | `str` | `""` | 审批邮件里的站点根 URL |
+| `notice_mailer` | `Optional[NoticeMailer]` | `None` | 审批通知发信回调；未设则走 SMTP |
+| `on_pending_user` | `Optional[UserHook]` | `None` | pending 用户创建后钩子，**在 commit 前**运行（可写同一事务）。邮件不在此发送 |
+| `on_approval_decided` | `Optional[UserHook]` | `None` | 审批决定后钩子，**在 commit 前**运行。邮件在 `commit=True` 成功后发送，或宿主调用 `notify_user_approval_decision` |
+| `email_domain_restriction` | `bool` | `False` | 是否开启邮箱后缀白名单限制（**只约束邮箱注册与 SSO create-account**，不约束 bind-existing） |
 | `allowed_email_domains` | `Tuple[str, ...]` | `()` | 允许注册的邮箱域名后缀元组（如 `("example.com",)`） |
 | `role_change_enabled` | `bool` | `False` | 是否允许前台普通用户申请变更所属角色 |
 
@@ -295,3 +302,13 @@ await ensure_admin(session, "ops", "ops@example.com", password)
 | `sso_allow_http_issuer` | `bool` | `False` | 测试放行 http issuer |
 
 `before_action` 新增：`sso_authorize` `sso_token` `sso_userinfo`。未配齐 → 503 `SSO_NOT_CONFIGURED`。挂载后把开关设为 False → 403 `SSO_DISABLED`。
+
+### SSO RP 绑定（0.7.0）
+
+kit **不**注册 RP 路由、不持有 `sso_links`。以下开关给宿主 `finish` / bind-existing / create-account 使用。
+
+| 配置项 | 类型 | 默认值 | 说明 |
+| :--- | :--- | :--- | :--- |
+| `sso_bind_ticket_ttl_seconds` | `int` | `600` | bind_ticket 寿命（秒） |
+| `sso_email_auto_link` | `bool` | `True` | IdP email 命中本地唯一账号时自动写 link。`email_verified=false` 或缺省 **不**自动关联 |
+| `sso_allow_create` | `bool` | `True` | 是否允许用 bind_ticket 创建新账号。`False` 时 create-account 403 `SSO_CREATE_DISABLED` |

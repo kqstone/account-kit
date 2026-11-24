@@ -39,8 +39,8 @@ async def demo(tmp_path, monkeypatch, db_parts):
 def _code(body):
     detail = body.get("detail") if isinstance(body, dict) else None
     if isinstance(detail, dict):
-        return detail.get("code")
-    return None
+        return detail.get("code") or (body.get("code") if isinstance(body, dict) else None)
+    return body.get("code") if isinstance(body, dict) else None
 
 
 async def test_setup_then_auth_smoke(demo):
@@ -217,3 +217,78 @@ async def test_demo_ensure_admin_no_hijack(demo, db_parts):
     )
     assert init.status_code == 400, init.text
     assert _code(init.json()) == "ADMIN_USERNAME_TAKEN"
+
+
+async def test_demo_admin_reject_reason(demo):
+    client = demo["client"]
+    db = demo["db"]
+    init = await client.post(
+        "/api/setup/init",
+        json={
+            "db": db,
+            "admin": {"username": "demo-admin", "email": "admin@example.com", "password": "secret1a"},
+            "features": {"require_approval": True, "refresh": True},
+            "mail_mode": "console",
+        },
+    )
+    assert init.status_code == 200, init.text
+    admin_login = await client.post("/api/auth/login", data={"username": "demo-admin", "password": "secret1a"})
+    assert admin_login.status_code == 200, admin_login.text
+    admin_headers = {"Authorization": f"Bearer {admin_login.json()['access_token']}"}
+
+    email = "pending@example.com"
+    sent = await client.post(
+        "/api/auth/send-code",
+        json={"email": email, "purpose": "register", "language": "zh"},
+    )
+    assert sent.status_code == 200, sent.text
+    box = await client.get("/api/demo/outbox", params={"email": email, "purpose": "register"})
+    code = box.json()["items"][0]["code"]
+    created = await client.post(
+        "/api/auth/register",
+        json={"username": "penduser", "email": email, "password": "secret1", "code": code},
+    )
+    assert created.status_code == 200, created.text
+    user = created.json()
+    assert user["approval_status"] == "pending"
+    blocked = await client.post("/api/auth/login", data={"username": "penduser", "password": "secret1"})
+    assert blocked.status_code == 403
+    assert _code(blocked.json()) == "ACCOUNT_PENDING"
+
+    missing = await client.patch(
+        f"/api/admin/account/users/{user['id']}/approval",
+        json={"status": "rejected"},
+        headers=admin_headers,
+    )
+    assert missing.status_code == 400, missing.text
+    assert _code(missing.json()) == "REJECT_REASON_REQUIRED"
+
+    rejected = await client.patch(
+        f"/api/admin/account/users/{user['id']}/approval",
+        json={"status": "rejected", "reason": "材料不完整"},
+        headers=admin_headers,
+    )
+    assert rejected.status_code == 200, rejected.text
+    body = rejected.json()
+    assert body["approval_status"] == "rejected"
+    assert body["approval_reason"] == "材料不完整"
+
+    login = await client.post("/api/auth/login", data={"username": "penduser", "password": "secret1"})
+    assert login.status_code == 403, login.text
+    payload = login.json()
+    assert payload.get("code") == "ACCOUNT_REJECTED"
+    detail = payload.get("detail")
+    reason = None
+    if isinstance(detail, dict):
+        reason = detail.get("reason")
+    reason = reason or (payload.get("params") or {}).get("reason")
+    assert reason == "材料不完整"
+
+    approved = await client.patch(
+        f"/api/admin/account/users/{user['id']}/approval",
+        json={"status": "approved"},
+        headers=admin_headers,
+    )
+    assert approved.status_code == 200, approved.text
+    ok = await client.post("/api/auth/login", data={"username": "penduser", "password": "secret1"})
+    assert ok.status_code == 200, ok.text

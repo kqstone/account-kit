@@ -147,6 +147,24 @@ async def test_audit_log_events_and_admin_listing(api):
     assert bad.status_code == 400
 
 
+async def test_sso_audit_event_names_persist(api):
+    from account_kit.audit import LOGIN_SSO, SSO_BOUND, SSO_UNBOUND, audit
+    from account_kit.config import get_config
+
+    assert SSO_BOUND == "sso_bound"
+    assert SSO_UNBOUND == "sso_unbound"
+    assert LOGIN_SSO == "login_sso"
+    user, _ = await approved_user(api, "audsso", login=False)
+    async with api["sessions"]() as db:
+        await audit(db, get_config(), SSO_BOUND, user_id=user["id"])
+        await audit(db, get_config(), SSO_UNBOUND, user_id=user["id"])
+        await audit(db, get_config(), LOGIN_SSO, user_id=user["id"])
+    events = await audit_events(api, user["id"])
+    assert "sso_bound" in events
+    assert "sso_unbound" in events
+    assert "login_sso" in events
+
+
 async def test_audit_can_be_disabled_with_hook(api):
     config = api["config"]
     config.audit_log_enabled = False

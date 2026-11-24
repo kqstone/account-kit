@@ -45,6 +45,7 @@ export interface AdminUserItem {
   is_admin: boolean
   is_active: boolean
   approval_status: 'pending' | 'approved' | 'rejected' | string
+  approval_reason?: string | null
   has_custom_avatar?: boolean
   pending_role?: string | null
   tier?: string | null

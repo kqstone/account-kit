@@ -28,7 +28,6 @@ from account_kit.security import verify_password
 from account_kit.service import (
     complete_login_tokens,
     get_user_by_id,
-    get_user_by_username,
     register_user,
     sanitize_device_name,
 )
@@ -445,10 +444,9 @@ async def confirm_login(db: AsyncSession, config: AccountKitConfig, request, *, 
     user = await get_user_by_id(db, ticket.user_id)
     if user is None:
         raise account_error(401, "WECHAT_NOT_BOUND")
-    if not user.is_active:
-        raise account_error(403, "USER_DISABLED")
-    if user.approval_status != "approved":
-        raise account_error(403, "ACCOUNT_PENDING")
+    from account_kit.approval import assert_login_allowed
+
+    assert_login_allowed(user)
     if not config.wechat_satisfies_mfa:
         from account_kit.two_factor.service import is_enabled
 
@@ -569,90 +567,51 @@ async def bind_existing(
     captcha_id: str = "",
     captcha_code: str = "",
 ) -> dict:
-    from account_kit import captcha
-    from account_kit.lockout import clear_lockout, enforce_not_locked, record_lockout_failure
+    from account_kit.bind_target import lookup_bind_user, verify_bind_target
+    from account_kit.i18n import AccountError, error_code_of
     from account_kit.two_factor.challenges import challenge_token_hash
-    from account_kit.two_factor.service import is_enabled, mfa_required, verify_second_factor, PURPOSE_LOGIN_2FA
 
     await run_before_action(config, request, "wechat_bind", {"username": username})
     await wechat_ip_limit(db, config, request)
     ip = request_ip(config, request)
-    name = (username or "").strip()
-    window = int(config.login_rate_window_seconds or 60) or 60
-    if ip:
-        await enforce_limit(db, config, f"login:ip:{ip}", config.login_rate_limit_ip, window)
-    if name:
-        await enforce_limit(db, config, f"login:user:{name.lower()}", config.login_rate_limit_user, window)
     ticket = await load_ticket_by_raw(db, bind_ticket)
     if ticket.purpose != "login":
         raise account_error(400, "WECHAT_TICKET_INVALID")
     assert_usable(ticket, allow=("unbound",))
     openid, unionid = _load_openid(config, ticket)
-    candidate = await get_user_by_username(db, name) if name else None
-    if candidate is not None and candidate.is_admin and config.admin_login_rate_limit_user:
-        await enforce_limit(
-            db, config, f"login:admin_user:{name.lower()}", config.admin_login_rate_limit_user, window
-        )
-    await enforce_not_locked(db, config, candidate, name)
-    use_captcha = captcha.captcha_enabled(config)
-    admin_always_captcha = bool(
-        use_captcha and config.admin_login_captcha_always and candidate is not None and candidate.is_admin
-    )
-    if use_captcha:
-        await captcha.enforce_login_captcha(
-            db, config, ip, name, captcha_id, captcha_code, force=admin_always_captcha
-        )
-    from account_kit.service import _DUMMY_PASSWORD_HASH
-
-    hashed = candidate.hashed_password if candidate is not None else _DUMMY_PASSWORD_HASH
-    password_ok = verify_password(password, hashed)
-    if not candidate or not password_ok:
-        locked = await record_lockout_failure(db, config, candidate, name)
-        if locked is not None:
-            if use_captcha:
-                await captcha.record_failure(db, config, ip, name)
-            raise locked
-        if use_captcha:
-            raise await captcha.invalid_credentials(db, config, ip, name, {"WWW-Authenticate": "Bearer"})
-        raise account_error(401, "INVALID_CREDENTIALS", headers={"WWW-Authenticate": "Bearer"})
-    user = candidate
-    if not user.is_active:
-        if use_captcha:
-            await captcha.clear_failures(db, config, ip, name)
-        raise account_error(403, "USER_DISABLED")
-    if user.approval_status != "approved":
-        if use_captcha:
-            await captcha.clear_failures(db, config, ip, name)
-        raise account_error(403, "ACCOUNT_PENDING")
-    if use_captcha:
-        await captcha.clear_failures(db, config, ip, name)
-    await clear_lockout(db, config, user, name)
-
     ticket.force = bool(force or ticket.force)
     ticket.device_name = sanitize_device_name(device_name or ticket.device_name)
-    ticket.user_id = user.id
-    await db.commit()
-    await db.refresh(ticket)
-
-    needs_mfa = bool(config.two_factor_enabled and await is_enabled(db, user.id))
-    factor_given = bool((code or "").strip() or (recovery_code or "").strip() or (email_code or "").strip())
-    if needs_mfa and not factor_given:
-        exc = await mfa_required(db, user, ticket.device_name or "", config)
+    try:
+        user = await verify_bind_target(
+            db,
+            config,
+            request,
+            username=username,
+            password=password,
+            code=code,
+            recovery_code=recovery_code,
+            email_code=email_code,
+            captcha_id=captcha_id,
+            captcha_code=captcha_code,
+            forbid_admin=False,
+            login_purpose="wechat_bind",
+            device_name=ticket.device_name or "",
+        )
+    except AccountError as exc:
+        if error_code_of(exc) != "MFA_REQUIRED":
+            raise
         extra = dict(exc.kit_extra)
-        extra["bind_ticket"] = bind_ticket.strip()
+        extra["bind_ticket"] = (bind_ticket or "").strip()
+        found = await lookup_bind_user(db, username)
+        if found is not None:
+            ticket.user_id = found.id
         ticket.mfa_challenge_hash = challenge_token_hash(str(extra.get("challenge_token") or ""))
         await db.commit()
         raise account_error(401, "MFA_REQUIRED", extra=extra)
-    if needs_mfa and factor_given:
-        await verify_second_factor(
-            db,
-            config,
-            user,
-            code=code or "",
-            recovery_code=recovery_code or "",
-            email_code=email_code or "",
-            email_purpose=PURPOSE_LOGIN_2FA if (email_code or "").strip() else "",
-        )
+
+    ticket.user_id = user.id
+    await db.commit()
+    await db.refresh(ticket)
 
     await bind_identity(db, config, user, openid, unionid)
     user, body = await complete_login_tokens(

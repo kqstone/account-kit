@@ -184,6 +184,7 @@ export function RegisterForm({
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
   const [sending, setSending] = useState(false)
+  const [pending, setPending] = useState(false)
 
   useEffect(() => {
     let alive = true
@@ -228,6 +229,7 @@ export function RegisterForm({
         birth_year_month: birth || undefined,
         role: role || undefined,
       })
+      setPending(user?.approval_status === "pending")
       onSuccess(user)
     } catch (err) {
       setError(formatError(err, L, locale))
@@ -294,6 +296,7 @@ export function RegisterForm({
           </select>
         </label>
       ) : null}
+      {pending ? <p className="ak-success">{L.registerPending}</p> : null}
       {error ? <p className="ak-error">{error}</p> : null}
       <button type="submit" disabled={busy}>
         {busy ? L.submitting : L.register}

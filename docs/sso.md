@@ -112,7 +112,89 @@ profile = await fetch_userinfo(issuer="https://gingiva.top:8443", access_token=t
 
 `verify_id_token` 校验 **iss / aud / exp / nonce / 签名**（JWKS 或 HS256 secret）。
 
-宿主 finish：用 `iss`/`sub` 查自己的 `sso_links`，没有则 email 精确匹配后插入，再 `complete_login_tokens`。管理员账号不要走 SSO。
+宿主 finish：用 `iss`/`sub` 查自己的 `sso_links`。命中则 `assert_login_allowed` 后发本站 token。未命中但 email 唯一命中且 `sso_email_auto_link=True` 且 `email_verified=true` 则自动写 link。**未知身份禁止 `create_user`**，签发 `bind_ticket` 返回 `bind_required`。管理员账号不要走 SSO。
+
+---
+
+## RP 绑定已有用户（0.7.0）
+
+kit 提供票与校验，**不**注册 `/sso/bind-existing` 等 RP 路由。`sso_links` 仍在宿主。
+
+| helper | 职责 |
+|---|---|
+| `issue_bind_ticket` / `load_bind_ticket` / `consume_bind_ticket` | 600s 一次票。消费 `SELECT FOR UPDATE` + `populate_existing` |
+| `verify_bind_target` | 密码 + captcha + lockout + 审批 + 可选禁管理员 + 2FA。可选 `challenge_token` + 已加载的 `bind_ticket` 行 |
+| `attach_mfa_challenge` / `discard_bind_mfa_challenge` / `discard_challenge` | 把登录 2FA 挑战绑到票上；绑定+发 token **全部成功后**才 discard |
+| `provision_user(source="sso", password_set=False, commit=False)` | 仅 create-account。读当前 `require_approval`。`commit=False` 不发邮件 |
+| `notify_admins_pending` / `notify_user_approval_decision` | 宿主自己 commit 成功后再显式发信 |
+
+### 宿主 `POST /sso/bind-existing`
+
+Body：
+
+```
+bind_ticket, username, password,
+force?, device_name?,
+code?, recovery_code?, email_code?,
+captcha_id?, captcha_code?,
+reclaim?,
+challenge_token?
+```
+
+前端 `SsoBindExistingPayload.challengeToken` 对应 `challenge_token`。微信 bind-existing 不传此字段，仍走 kit `POST /login/2fa`。
+
+校验顺序：密码 / captcha / lockout / `assert_login_allowed` / 禁管理员始终执行。2FA：
+
+1. 未带第二因素 → `401 MFA_REQUIRED`（`challenge_token` + 原样 `bind_ticket`）。**票不消费**。宿主 `attach_mfa_challenge(ticket, challenge_token)`，关联写在 **票行** `mfa_challenge_hash` 上（不信任客户端自报 jti）。
+2. 带码 + `challenge_token` + 宿主传入已加载的 `bind_ticket` 行 → 校验挑战未过期、`user_id` 为当前用户、票 hash 与用途一致，然后 `verify_second_factor`，置 `item.passed=True`，**helper 内不 discard**。
+3. 同一用户同一票再次 POST（force / reclaim），码可空：已 `passed` 的挑战直接过 2FA，不重用已消费的 TOTP/恢复码/邮箱码。
+4. 跨用户 / 跨票 / 不同用途 / 过期 → `MFA_CHALLENGE_INVALID`。
+5. 写 `sso_links` + `consume_bind_ticket(commit=False)` + `complete_login_tokens` **全部成功** 后：`discard_bind_mfa_challenge`（或 `discard_challenge` + 清空 `ticket.mfa_challenge_hash`）。409 `ALREADY_LOGGED_IN` / `SSO_ORPHAN_PENDING` **不要** discard，把错误回给前端；前端带同一 `challenge_token` 重试。
+
+不要走 kit `POST /login/2fa` 完成 SSO 绑定（命中 bind_ticket 会 400 `SSO_BIND_TICKET_INVALID`）。邮箱码仍用 `POST /login/2fa/email/send`。
+
+```python
+from account_kit import (
+    attach_mfa_challenge, consume_bind_ticket, discard_bind_mfa_challenge,
+    load_bind_ticket, verify_bind_target,
+)
+from account_kit.i18n import AccountError, error_code_of
+
+ticket, claims = await load_bind_ticket(db, raw, config=get_config())
+try:
+    user = await verify_bind_target(
+        db, get_config(), request,
+        username=..., password=...,
+        code=..., recovery_code=..., email_code=...,
+        challenge_token=body.challenge_token or "",
+        bind_ticket=ticket,
+        forbid_admin=True,
+        login_purpose="sso_bind",
+    )
+except AccountError as exc:
+    if error_code_of(exc) == "MFA_REQUIRED":
+        extra = dict(exc.kit_extra)
+        extra["bind_ticket"] = raw
+        await attach_mfa_challenge(db, ticket, extra["challenge_token"])
+        raise account_error(401, "MFA_REQUIRED", extra=extra)
+    raise
+# 写 sso_links（含 reclaim）；409 时不要 discard 挑战
+await consume_bind_ticket(db, raw, config=get_config(), commit=False)
+user, tokens = await complete_login_tokens(db, get_config(), user, force=force, ...)
+await db.commit()
+await discard_bind_mfa_challenge(db, ticket, body.challenge_token or "")
+```
+
+`complete_login_tokens(force=False)` 在 `single_device` 下可能 409 `ALREADY_LOGGED_IN`。此时票仍是 issued、挑战仍是 passed，前端强制登录重试同一 `challenge_token`（空码 + `force=true`）。
+
+`SSO_ORPHAN_PENDING` 同样回传外层：`BindExistingAccountForm` / `TwoFactorLoginDialog` 保留已通过的 `challengeToken`，确认后 `reclaim=true` 再 POST。
+
+- `POST /sso/create-account`：此处才做邮箱域名限制。`sso_allow_create=False` → `SSO_CREATE_DISABLED`。`provision_user(..., commit=False)` 后宿主写 link 并 commit，再 `notify_admins_pending`（pending 时）。`on_pending_user` 仍在事务内运行。
+- `POST /sso/bind/start`、`GET /sso/binding`、`POST /sso/unbind`：个人中心。解绑时 `password_set=false` → `SSO_UNBIND_PASSWORD_REQUIRED`。审计 `sso_bound` / `sso_unbound` / `login_sso`。
+
+reclaim：占用方同时 `pending + password_set=false + approved_at is NULL` 时默认 409 `SSO_ORPHAN_PENDING`；`reclaim: true` 改绑到老号，空号保留给管理员删除。
+
+前端：`SsoBindPanel` / `BindExistingAccountForm` / `SsoBindSettings`。kit 不注册 RP 路由。
 
 ---
 

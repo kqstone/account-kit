@@ -8,6 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.admin_schemas import (
+    AdminUserApprovalBody,
     AdminUserPatch,
     RoleBody,
     RoleChangeCreate,
@@ -176,9 +177,75 @@ async def remove_tier(code: str, request: Request, admin=Depends(require_admin),
 
 
 @admin_router.get("/users")
-async def list_users(_admin=Depends(require_admin), db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(User).order_by(User.created_at.desc()))
+async def list_users(
+    approval_status: Optional[str] = Query(None),
+    _admin=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    stmt = select(User).order_by(User.created_at.desc())
+    if approval_status is not None and str(approval_status).strip():
+        status = str(approval_status).strip().lower()
+        if status not in ("pending", "approved", "rejected"):
+            raise account_error(400, "STATUS_INVALID")
+        stmt = stmt.where(User.approval_status == status)
+    result = await db.execute(stmt)
     return [await to_response(db, user) for user in result.scalars().all()]
+
+
+@admin_router.get("/users/pending-count")
+async def pending_user_count(_admin=Depends(require_admin), db: AsyncSession = Depends(get_db)):
+    from account_kit.approval import count_pending
+
+    return {"pending": await count_pending(db)}
+
+
+@admin_router.patch("/users/{user_id}/approval")
+async def patch_user_approval(
+    user_id: str,
+    body: AdminUserApprovalBody,
+    request: Request,
+    admin=Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    from account_kit.approval import set_user_approval
+
+    user = await get_user_by_id(db, user_id)
+    if user is None:
+        raise account_error(404, "USER_NOT_FOUND")
+    if user.is_admin:
+        await audit(
+            db,
+            get_config(),
+            audit_mod.ADMIN_PROTECTED,
+            user_id=user.id,
+            request=request,
+            meta={"admin_id": str(admin.id), "action": "approval", "code": "ADMIN_DEACTIVATE_FORBIDDEN"},
+        )
+    previous = user.approval_status
+    user = await set_user_approval(
+        db,
+        get_config(),
+        user,
+        status=body.status,
+        reason=body.reason,
+        decided_by=f"admin:{admin.username}",
+        require_reason=True,
+    )
+    event = audit_mod.ADMIN_USER_APPROVED if body.status == "approved" else audit_mod.ADMIN_USER_REJECTED
+    await audit(
+        db,
+        get_config(),
+        event,
+        user_id=user.id,
+        request=request,
+        meta={
+            "admin_id": str(admin.id),
+            "from": previous,
+            "to": user.approval_status,
+            "reason": user.approval_reason,
+        },
+    )
+    return await to_response(db, user)
 
 
 @admin_router.patch("/users/{user_id}")

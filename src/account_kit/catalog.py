@@ -7,6 +7,24 @@ from datetime import datetime, timezone
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from account_kit.approval import (
+    assert_login_allowed,
+    count_pending,
+    notify_admins_pending,
+    notify_user_approval_decision,
+    provision_user,
+    set_user_approval,
+)
+from account_kit.bind_target import lookup_bind_user, verify_bind_target
+from account_kit.bind_ticket import (
+    attach_mfa_challenge,
+    discard_bind_mfa_challenge,
+    find_bind_ticket_by_mfa,
+    consume_bind_ticket,
+    issue_bind_ticket,
+    load_bind_ticket,
+)
+from account_kit.two_factor.challenges import discard_challenge
 from account_kit.i18n import account_error
 from account_kit.models import Role, User, UserTier, UserTierAssignment
 from account_kit.service import assert_role_code
@@ -165,8 +183,14 @@ async def apply_admin_user_patch(db, user: User, body) -> User:
         user.is_active = body.is_active
     if body.approval_status is not None:
         user.approval_status = body.approval_status
-        if body.approval_status == "approved" and user.approved_at is None:
-            user.approved_at = datetime.now(timezone.utc)
+        if body.approval_status == "approved":
+            if user.approved_at is None:
+                user.approved_at = datetime.now(timezone.utc)
+            user.approval_reason = None
+        elif getattr(body, "approval_reason", None) is not None:
+            user.approval_reason = (body.approval_reason or "").strip() or None
+    elif getattr(body, "approval_reason", None) is not None:
+        user.approval_reason = (body.approval_reason or "").strip() or None
     if body.tier_code is not None:
         await set_user_tier(db, user, body.tier_code)
     losing_access = (body.is_active is False) or (
@@ -179,3 +203,30 @@ async def apply_admin_user_patch(db, user: User, body) -> User:
     await db.commit()
     await db.refresh(user)
     return user
+
+
+__all__ = [
+    "apply_admin_user_patch",
+    "assert_login_allowed",
+    "attach_mfa_challenge",
+    "find_bind_ticket_by_mfa",
+    "consume_bind_ticket",
+    "count_pending",
+    "create_role",
+    "create_tier",
+    "delete_role",
+    "delete_tier",
+    "discard_bind_mfa_challenge",
+    "discard_challenge",
+    "issue_bind_ticket",
+    "load_bind_ticket",
+    "lookup_bind_user",
+    "notify_admins_pending",
+    "notify_user_approval_decision",
+    "patch_role",
+    "patch_tier",
+    "provision_user",
+    "set_user_approval",
+    "set_user_tier",
+    "verify_bind_target",
+]

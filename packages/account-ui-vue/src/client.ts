@@ -11,6 +11,9 @@ export type AccountUser = {
   is_admin: boolean
   is_active: boolean
   approval_status: string
+  approval_reason?: string | null
+  approval_decided_by?: string | null
+  approval_decided_at?: string | null
   has_custom_avatar?: boolean
   /** 0.5.1: false for accounts without a user-known password (e.g. SSO-created). */
   password_set?: boolean
@@ -61,6 +64,20 @@ export type AccountClientOptions = {
     getRefreshToken: () => string | null | undefined
     onTokens: (tokens: TokenPair) => void
     onRefreshFailed?: (error: unknown) => void
+  }
+  /** Admin API prefix (``AccountKitConfig.admin_prefix``). Default ``/api/admin/account``. */
+  adminPrefix?: string
+  /**
+   * Host RP SSO paths, relative to ``baseUrl``. Kit does not register these routes;
+   * the host must serve them. Defaults: ``/sso/bind-existing``, ``/sso/create-account``,
+   * ``/sso/bind/start``, ``/sso/binding``, ``/sso/unbind``.
+   */
+  ssoPaths?: {
+    bindExisting?: string
+    createAccount?: string
+    bindStart?: string
+    binding?: string
+    unbind?: string
   }
 }
 
@@ -154,7 +171,33 @@ export type WechatBindExistingPayload = {
   emailCode?: string
   captchaId?: string
   captchaCode?: string
+  reclaim?: boolean
 }
+
+export type SsoBindExistingPayload = WechatBindExistingPayload & {
+  challengeToken?: string
+}
+
+export type BindExistingPayload = SsoBindExistingPayload
+
+export type SsoIdentity = {
+  email?: string | null
+  name?: string | null
+  email_verified?: boolean
+  matched_username?: string | null
+}
+
+export type SsoBindingStatus = {
+  bound: boolean
+  email_masked?: string | null
+  bound_at?: string | null
+}
+
+export type SsoCreateAccountResult = TokenPair | { status: "pending"; user: AccountUser }
+
+export type SsoBindStartResult = { url: string }
+
+export type AdminApprovalBody = { status: "approved" | "rejected"; reason?: string }
 
 export class AccountApiError extends Error {
   status: number
@@ -217,6 +260,15 @@ const NO_REFRESH_PATHS = [
 
 export function createAccountClient(baseUrl: string, options: AccountClientOptions = {}) {
   const prefix = baseUrl.replace(/\/$/, "")
+  const adminPrefix = (options.adminPrefix || "/api/admin/account").replace(/\/$/, "")
+  const ssoPath = {
+    bindExisting: options.ssoPaths?.bindExisting || "/sso/bind-existing",
+    createAccount: options.ssoPaths?.createAccount || "/sso/create-account",
+    bindStart: options.ssoPaths?.bindStart || "/sso/bind/start",
+    binding: options.ssoPaths?.binding || "/sso/binding",
+    unbind: options.ssoPaths?.unbind || "/sso/unbind",
+  }
+  const noRefresh = new Set([...NO_REFRESH_PATHS, ssoPath.bindExisting, ssoPath.createAccount])
   const logoutPath = "/" + (options.logoutPath || "/logout").replace(/^\/+/, "")
   let refreshing: Promise<TokenPair> | null = null
 
@@ -230,13 +282,13 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
     return localeHeader() || undefined
   }
 
-  async function send(path: string, init: RequestInit, token?: string | null) {
+  async function send(path: string, init: RequestInit, token?: string | null, root = prefix) {
     const headers = new Headers(init.headers)
     if (token) headers.set("Authorization", `Bearer ${token}`)
     const locale = localeHeader()
     if (locale && !headers.has("X-Locale")) headers.set("X-Locale", locale)
     if (init.body instanceof FormData) headers.delete("Content-Type")
-    const response = await fetch(prefix + path, { ...init, headers })
+    const response = await fetch(root + path, { ...init, headers })
     const body = parseBody(await response.text())
     if (!response.ok) throw new AccountApiError(detailOf(body, response.statusText), response.status, body)
     return body
@@ -277,7 +329,7 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         !!options.autoRefresh &&
         error instanceof AccountApiError &&
         error.status === 401 &&
-        !NO_REFRESH_PATHS.includes(path) &&
+        !noRefresh.has(path) &&
         path !== logoutPath
       if (!canRefresh) throw error
       const tokens = await refreshOnce().catch(() => {
@@ -294,6 +346,49 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
       token,
       allowRefresh,
     )
+  }
+
+  async function adminRequest(path: string, init: RequestInit = {}, token?: string | null, allowRefresh = true) {
+    try {
+      return await send(path, init, token, adminPrefix)
+    } catch (error) {
+      const canRefresh =
+        allowRefresh &&
+        !!token &&
+        !!options.autoRefresh &&
+        error instanceof AccountApiError &&
+        error.status === 401
+      if (!canRefresh) throw error
+      const tokens = await refreshOnce().catch(() => {
+        throw error
+      })
+      return await send(path, init, tokens.access_token, adminPrefix)
+    }
+  }
+
+  function adminJson(path: string, payload: unknown, token: string, method = "PATCH") {
+    return adminRequest(
+      path,
+      { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) },
+      token,
+    )
+  }
+
+  function bindExistingBody(payload: BindExistingPayload) {
+    return {
+      bind_ticket: payload.bindTicket,
+      username: payload.username,
+      password: payload.password,
+      force: !!payload.force,
+      device_name: payload.deviceName || "",
+      code: payload.code || "",
+      recovery_code: payload.recoveryCode || "",
+      email_code: payload.emailCode || "",
+      captcha_id: payload.captchaId || "",
+      captcha_code: payload.captchaCode || "",
+      ...(payload.reclaim ? { reclaim: true } : {}),
+      ...(payload.challengeToken ? { challenge_token: payload.challengeToken } : {}),
+    }
   }
 
   return {
@@ -545,24 +640,7 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
       return json("/login/wechat/cancel", { ticket }, null, "POST", false) as Promise<{ status: string }>
     },
     wechatBindExisting(payload: WechatBindExistingPayload) {
-      return json(
-        "/login/wechat/bind-existing",
-        {
-          bind_ticket: payload.bindTicket,
-          username: payload.username,
-          password: payload.password,
-          force: !!payload.force,
-          device_name: payload.deviceName || "",
-          code: payload.code || "",
-          recovery_code: payload.recoveryCode || "",
-          email_code: payload.emailCode || "",
-          captcha_id: payload.captchaId || "",
-          captcha_code: payload.captchaCode || "",
-        },
-        null,
-        "POST",
-        false,
-      ) as Promise<TokenPair>
+      return json("/login/wechat/bind-existing", bindExistingBody(payload), null, "POST", false) as Promise<TokenPair>
     },
     wechatRegister(payload: Record<string, unknown>) {
       return json("/login/wechat/register", payload, null, "POST", false) as Promise<AccountUser | TokenPair>
@@ -584,6 +662,53 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         },
         token,
       ) as Promise<{ bound: boolean }>
+    },
+    ssoBindExisting(payload: SsoBindExistingPayload) {
+      return json(ssoPath.bindExisting, bindExistingBody(payload), null, "POST", false) as Promise<TokenPair>
+    },
+    ssoCreateAccount(payload: { bindTicket: string; force?: boolean; deviceName?: string }) {
+      return json(
+        ssoPath.createAccount,
+        {
+          bind_ticket: payload.bindTicket,
+          force: !!payload.force,
+          device_name: payload.deviceName || "",
+        },
+        null,
+        "POST",
+        false,
+      ) as Promise<SsoCreateAccountResult>
+    },
+    ssoBindStart(token: string) {
+      return json(ssoPath.bindStart, {}, token) as Promise<SsoBindStartResult>
+    },
+    ssoBinding(token: string) {
+      return request(ssoPath.binding, {}, token) as Promise<SsoBindingStatus>
+    },
+    ssoUnbind(token: string, payload: SecondFactorPayload) {
+      return json(
+        ssoPath.unbind,
+        {
+          password: payload.password,
+          code: payload.code || "",
+          recovery_code: payload.recoveryCode || "",
+          email_code: payload.emailCode || "",
+        },
+        token,
+      ) as Promise<SsoBindingStatus>
+    },
+    admin: {
+      setApproval(token: string, userId: string, body: AdminApprovalBody) {
+        return adminJson(
+          `/users/${encodeURIComponent(userId)}/approval`,
+          { status: body.status, reason: body.reason || "" },
+          token,
+          "PATCH",
+        ) as Promise<AccountUser>
+      },
+      pendingCount(token: string) {
+        return adminRequest("/users/pending-count", {}, token) as Promise<{ pending: number }>
+      },
     },
   }
 }
@@ -699,6 +824,9 @@ export function ensureAccountStyle() {
 .ak-tabs{display:flex;gap:8px;flex-wrap:wrap}
 .ak-tab{padding:6px 12px;border:1px solid #d0d5dd;border-radius:8px;background:#fff;cursor:pointer;font:inherit;font-size:14px;color:#344054}
 .ak-tab-active{border-color:#1677ff;color:#1677ff;background:#eff6ff}
+.ak-approval-pending{background:#fff7e6;color:#d46b08}
+.ak-approval-approved{background:#ecfdf3;color:#079455}
+.ak-approval-rejected{background:#fef3f2;color:#d92d20}
 ` + CODE_ROW_CSS
   document.head.appendChild(style)
 }

@@ -43,6 +43,12 @@ LOGIN_WECHAT = "login_wechat"
 WECHAT_REGISTER = "wechat_register"
 SSO_AUTHORIZE = "sso_authorize"
 SSO_TOKEN = "sso_token"
+SSO_BOUND = "sso_bound"
+SSO_UNBOUND = "sso_unbound"
+LOGIN_SSO = "login_sso"
+ADMIN_USER_APPROVED = "admin_user_approved"
+ADMIN_USER_REJECTED = "admin_user_rejected"
+USER_PENDING = "user_pending"
 
 
 def request_ip(config: AccountKitConfig, request) -> str:

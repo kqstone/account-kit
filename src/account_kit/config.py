@@ -19,6 +19,8 @@ class SmtpConfig:
 
 # to, purpose, code, language
 Mailer = Callable[[str, str, str, str], Awaitable[None]]
+# to, purpose, language, context (approval notices; no verification code)
+NoticeMailer = Callable[[str, str, str, Dict[str, Any]], Awaitable[None]]
 UserHook = Callable[..., Awaitable[None]]
 # request, username
 BeforeLogin = Callable[[object, str], Awaitable[None]]
@@ -288,6 +290,20 @@ class AccountKitConfig:
     sso_token_rate_limit_client: int = 30
     # Tests / local HTTP. Production issuer must be https.
     sso_allow_http_issuer: bool = False
+
+    # --- approval + SSO bind (0.7.0) -----------------------------------------
+    # One switch for email register, SSO create-account, and WeChat register.
+    # Binding an existing account is gated only by that account's approval_status.
+    approval_reason_max: int = 500
+    approval_emails_enabled: bool = True
+    admin_notify_emails: Tuple[str, ...] = ()
+    public_base_url: str = ""
+    notice_mailer: Optional[NoticeMailer] = None
+    on_pending_user: Optional[UserHook] = None
+    on_approval_decided: Optional[UserHook] = None
+    sso_bind_ticket_ttl_seconds: int = 600
+    sso_email_auto_link: bool = True
+    sso_allow_create: bool = True
 
     def challenge_ttl(self) -> int:
         return max(30, int(self.two_factor_challenge_ttl_seconds or 300))

@@ -212,6 +212,12 @@ async def login_second_factor(
     the verified challenge so the client can retry with ``force=true`` and no code."""
     config = get_config()
     item, user = await _load_challenge(db, challenge_token)
+    from account_kit.bind_ticket import find_bind_ticket_by_mfa
+
+    if await find_bind_ticket_by_mfa(db, challenge_token) is not None:
+        # SSO bind MFA must re-POST the host bind-existing route (ticket kept).
+        # Never complete WeChat bind or issue login tokens from this challenge.
+        raise account_error(400, "SSO_BIND_TICKET_INVALID")
     if not item.passed:
         use_email = bool(email_code) and not code and not recovery_code
         if not code and not recovery_code and not use_email:

@@ -1,7 +1,7 @@
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react"
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { type AccountClient } from "./client"
-import { LoginForm } from "./forms"
+import { LoginForm, RegisterForm } from "./forms"
 
 function mockClient() {
   return {
@@ -81,5 +81,37 @@ describe("LoginForm remember-login", () => {
     await waitFor(() => expect(onSuccess).toHaveBeenCalled())
     expect(onSuccess.mock.calls[0][0]).toBe("tok")
     expect(onSuccess.mock.calls[0][1]).toMatchObject({ username: "dave", password: "secret1" })
+  })
+})
+
+describe("RegisterForm pending", () => {
+  afterEach(() => {
+    cleanup()
+    document.body.innerHTML = ""
+  })
+
+  it("shows registerPending when the created user is pending", async () => {
+    const client = {
+      roles: vi.fn().mockResolvedValue([]),
+      register: vi.fn().mockResolvedValue({ username: "ada", approval_status: "pending" }),
+      sendCode: vi.fn(),
+    }
+    const onSuccess = vi.fn()
+    render(<RegisterForm client={client as unknown as AccountClient} onSuccess={onSuccess} />)
+    fireEvent.submit(document.querySelector("form.ak-form") as HTMLFormElement)
+    await waitFor(() => expect(onSuccess).toHaveBeenCalled())
+    expect(screen.getByText("注册成功，账号待管理员审批后方可登录")).toBeTruthy()
+  })
+
+  it("does not show pending copy for an approved user", async () => {
+    const client = {
+      roles: vi.fn().mockResolvedValue([]),
+      register: vi.fn().mockResolvedValue({ username: "ada", approval_status: "approved" }),
+      sendCode: vi.fn(),
+    }
+    render(<RegisterForm client={client as unknown as AccountClient} onSuccess={() => undefined} />)
+    fireEvent.submit(document.querySelector("form.ak-form") as HTMLFormElement)
+    await waitFor(() => expect(client.register).toHaveBeenCalled())
+    expect(screen.queryByText("注册成功，账号待管理员审批后方可登录")).toBeNull()
   })
 })

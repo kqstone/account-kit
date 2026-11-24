@@ -5,6 +5,7 @@ import {
   adminGetUsers,
   adminPatchUser,
   adminReset2Fa,
+  adminSetApproval,
 } from '../lib/api'
 import type { AdminUserItem } from '../types'
 import { TierBadge } from '@kqstone/account-ui-react'
@@ -20,6 +21,9 @@ export const AdminUsersPage: React.FC = () => {
     text: string
   } | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [rejectUser, setRejectUser] = useState<AdminUserItem | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejectError, setRejectError] = useState('')
 
   const loadUsers = useCallback(async () => {
     setLoading(true)
@@ -47,13 +51,50 @@ export const AdminUsersPage: React.FC = () => {
     user: AdminUserItem,
     status: 'approved' | 'rejected' | 'pending'
   ) => {
+    if (status === 'rejected') {
+      setRejectUser(user)
+      setRejectReason('')
+      setRejectError('')
+      return
+    }
     setBusyId(user.id)
     try {
-      await adminPatchUser(user.id, { approval_status: status })
+      if (status === 'approved') {
+        await adminSetApproval(user.id, { status: 'approved' })
+      } else {
+        await adminPatchUser(user.id, { approval_status: status })
+      }
       notify('success', t.userApprovalStatusUpdated.replace('{username}', user.username).replace('{status}', status))
       await loadUsers()
     } catch (err: unknown) {
       notify('error', err instanceof Error ? err.message : t.opFailed)
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  const handleRejectConfirm = async () => {
+    if (!rejectUser) return
+    const reason = rejectReason.trim()
+    if (!reason) {
+      setRejectError(t.rejectReasonRequired)
+      return
+    }
+    setBusyId(rejectUser.id)
+    try {
+      await adminSetApproval(rejectUser.id, { status: 'rejected', reason })
+      notify(
+        'success',
+        t.userApprovalStatusUpdated
+          .replace('{username}', rejectUser.username)
+          .replace('{status}', 'rejected')
+      )
+      setRejectUser(null)
+      setRejectReason('')
+      setRejectError('')
+      await loadUsers()
+    } catch (err: unknown) {
+      setRejectError(err instanceof Error ? err.message : t.opFailed)
     } finally {
       setBusyId(null)
     }
@@ -226,7 +267,14 @@ export const AdminUsersPage: React.FC = () => {
                         ) : u.approval_status === 'pending' ? (
                           <span className="demo-tag demo-tag-orange">{t.statusPending}</span>
                         ) : (
-                          <span className="demo-tag demo-tag-red">{t.statusRejected}</span>
+                          <>
+                            <span className="demo-tag demo-tag-red">{t.statusRejected}</span>
+                            {u.approval_reason ? (
+                              <div className="demo-sub-text">
+                                {t.approvalReasonPrefix.replace('{reason}', u.approval_reason)}
+                              </div>
+                            ) : null}
+                          </>
                         )}
                       </td>
                       <td style={{ textAlign: 'right' }}>
@@ -308,6 +356,47 @@ export const AdminUsersPage: React.FC = () => {
           </div>
         )}
       </div>
+
+      {rejectUser ? (
+        <div className="demo-card" style={{ marginTop: 16 }} role="dialog" aria-modal="true">
+          <h3>{t.rejectReasonTitle}</h3>
+          <p className="demo-muted">{rejectUser.username}</p>
+          <label className="ak-field">
+            {t.rejectReasonLabel}
+            <textarea
+              className="ak-input"
+              rows={3}
+              maxLength={500}
+              placeholder={t.rejectReasonPlaceholder}
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+            />
+          </label>
+          {rejectError ? <p className="ak-error">{rejectError}</p> : null}
+          <div className="demo-action-buttons" style={{ marginTop: 12 }}>
+            <button
+              type="button"
+              className="demo-btn-action demo-btn-action-red"
+              disabled={busyId === rejectUser.id}
+              onClick={() => void handleRejectConfirm()}
+            >
+              {t.rejectReasonConfirm}
+            </button>
+            <button
+              type="button"
+              className="demo-btn-action"
+              disabled={busyId === rejectUser.id}
+              onClick={() => {
+                setRejectUser(null)
+                setRejectReason('')
+                setRejectError('')
+              }}
+            >
+              {t.rejectReasonCancel}
+            </button>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }

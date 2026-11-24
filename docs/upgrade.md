@@ -4,6 +4,99 @@
 
 ---
 
+## 升级至 0.7.0（审批 + SSO bind-ticket）
+
+审批列、`bind_tickets` 表、拒绝码拆分、未知 SSO 身份不再静默建号。pin `account-kit==0.7.0` 与 `@kqstone/account-ui-vue` / `-react` `0.7.0`。升包前必须跑迁移 / `ensure_schema`。
+
+### 数据库
+
+```sql
+-- account_kit/sql/upgrade_0_7_0.sql（幂等）
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS approval_reason TEXT;
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS approval_decided_by VARCHAR(255);
+ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS approval_decided_at TIMESTAMPTZ;
+-- 以及 auth.bind_tickets
+```
+
+```python
+from account_kit.schema_setup import upgrade_sql
+from account_kit import ensure_schema
+
+def upgrade():
+    op.execute(upgrade_sql("0.7.0"))
+
+await ensure_schema(engine)
+```
+
+新列可空；老数据 `approval_status='approved'` 不变。`bind_tickets` 在 `auth` schema，宿主 alembic 若 stub kit 表则靠 `ensure_schema`。
+
+### 破坏性变化
+
+| 变化 | 迁移 |
+|---|---|
+| 被拒账号错误码 `ACCOUNT_PENDING` → `ACCOUNT_REJECTED`（可带 reason） | UI 0.7.0 认新码；过渡期仍认 `USER_*` |
+| 未知 SSO 身份不再静默 `create_user` | RP `finish` 返回 `bind_required` + `bind_ticket`；前端 `SsoBindPanel` |
+| 邮箱域名限制只拦 create-account / 邮箱注册 | bind-existing 不拦 |
+| 默认 email 自动关联，但 `email_verified=false` 不自动 | `sso_email_auto_link=False` 可改成显式确认 |
+
+### 宿主事务示例
+
+```python
+from account_kit.approval import provision_user, assert_login_allowed, notify_admins_pending
+from account_kit.bind_ticket import issue_bind_ticket, consume_bind_ticket, discard_bind_mfa_challenge
+from account_kit.bind_target import verify_bind_target
+
+# finish 未知身份
+raw, ttl = await issue_bind_ticket(db, get_config(), claims={
+    "issuer": issuer, "subject": sub, "email": email, "name": name,
+    "email_verified": email_verified,
+}, ip=ip)
+return {"status": "bind_required", "bind_ticket": raw, "expires_in": ttl, "identity": {...}}
+
+# bind-existing：校验后写 sso_links，再消费票（同一事务）
+# 2FA：把 challenge_token 与 load 出来的 ticket 行传入；409 冲突/orphan 不要 discard
+user = await verify_bind_target(
+    db, get_config(), request, username=..., password=...,
+    challenge_token=challenge_token, bind_ticket=ticket, forbid_admin=True,
+)
+# 写 sso_links；409 SSO_IDENTITY_ALREADY_BOUND / SSO_TARGET_ALREADY_BOUND / reclaim
+await consume_bind_ticket(db, raw, config=get_config(), commit=False)
+await db.commit()
+await discard_bind_mfa_challenge(db, ticket, challenge_token)  # 仅成功后
+
+# create-account
+user = await provision_user(db, get_config(), username=..., email=..., full_name=...,
+                            source="sso", password_set=False, commit=False)
+# 写 sso_links 后 commit。邮箱域名限制只在此处。
+# commit=False 不发待审信；成功后再 notify_admins_pending(config, user, via="sso")
+```
+
+kit **不**注册 `/sso/bind-existing` 等 RP 路由。前端 `AccountClientOptions.ssoPaths` 指向宿主。
+
+### 个人中心与 reclaim
+
+- 解绑：`password_set===false` → `SSO_UNBIND_PASSWORD_REQUIRED`，必须先设密码。
+- reclaim：仅当占用方 `approval_status=pending` 且 `password_set=false` 且 `approved_at is NULL`。请求带 `reclaim: true`。空号不自动 DROP。
+
+### 部署 SQL：清点历史 pending 空号
+
+`sso_links` 在宿主。升 0.7.0 后跑一次：
+
+```sql
+SELECT u.id, u.username, u.email, u.approval_status, u.password_set, u.approved_at, l.issuer, l.subject
+FROM public.sso_links l
+JOIN auth.users u ON u.id = l.user_id
+WHERE u.approval_status = 'pending' AND u.password_set = false AND u.approved_at IS NULL;
+```
+
+### `_refresh_config()` 建议写入
+
+`require_approval`、`sso_email_auto_link=True`、`sso_allow_create=True`、`admin_notify_emails`、`public_base_url`。开关热生效：helper 必须 `get_config()`。
+
+一期不做：被拒重新申请（仍留宿主 / dedd `auth_reapply`）。
+
+---
+
 ## 升级至 0.5.1（password_set）
 
 `auth.users` 新增 `password_set BOOLEAN NOT NULL DEFAULT true`。老账号保持 `true`，行为不变。为 `false` 的账号（宿主 SSO 自动建号时写入）改密时不需要旧密码，改为强制邮箱验证码，成功后置 `true`；重置密码成功也置 `true`。`GET /me` 返回 `password_set`。
