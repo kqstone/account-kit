@@ -166,6 +166,9 @@ _ZH_CN: Dict[str, str] = {
     "SSO_INVALID_SCOPE": "权限范围无效",
     "SSO_STATE_REQUIRED": "缺少 state 参数",
     "SSO_INVALID_REQUEST": "请求无效",
+    "SSO_BIND_TICKET_INVALID": "绑定凭证无效",
+    "SSO_BIND_TICKET_EXPIRED": "绑定凭证已过期，请重新用成龈之美登录",
+    "SSO_BIND_TICKET_CONSUMED": "绑定凭证已使用",
 }
 
 _EN: Dict[str, str] = {
@@ -312,6 +315,9 @@ _EN: Dict[str, str] = {
     "SSO_INVALID_SCOPE": "Invalid scope",
     "SSO_STATE_REQUIRED": "The state parameter is required",
     "SSO_INVALID_REQUEST": "Invalid request",
+    "SSO_BIND_TICKET_INVALID": "Bind ticket is invalid",
+    "SSO_BIND_TICKET_EXPIRED": "Bind ticket expired, please sign in again",
+    "SSO_BIND_TICKET_CONSUMED": "Bind ticket has already been used",
 }
 
 MESSAGES: Dict[str, Dict[str, str]] = {

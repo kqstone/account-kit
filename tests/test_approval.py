@@ -406,3 +406,36 @@ async def test_sso_assert_rejected_code(api):
         with pytest.raises(AccountError) as exc:
             assert_sso_user(row)
         assert exc.value.kit_code == "ACCOUNT_REJECTED"
+        assert exc.value.kit_params["reason"] == "身份不符"
+
+
+async def test_sso_assert_pending_code(api):
+    from account_kit.sso.service import assert_sso_user
+
+    user = await _register(api, email="ssopend@example.com", username="ssopend")
+    async with api["sessions"]() as db:
+        row = await db.get(User, user["id"])
+        with pytest.raises(AccountError) as exc:
+            assert_sso_user(row)
+        assert exc.value.kit_code == "ACCOUNT_PENDING"
+
+
+async def test_login_user_tokens_and_me_split_rejected_reason(api):
+    from account_kit.service import login_user_tokens
+
+    user, tokens = await approved_user(api, "tokrej")
+    async with api["sessions"]() as db:
+        row = await db.get(User, user["id"])
+        row.approval_status = "rejected"
+        row.approval_reason = "资质不足"
+        await db.commit()
+        await db.refresh(row)
+        with pytest.raises(AccountError) as exc:
+            await login_user_tokens(db, get_config(), username="tokrej", password="secret1")
+        assert exc.value.kit_code == "ACCOUNT_REJECTED"
+        assert exc.value.kit_params["reason"] == "资质不足"
+    me = await api["client"].get("/api/auth/me", headers=bearer(tokens))
+    assert me.status_code == 403
+    assert me.json()["code"] == "ACCOUNT_REJECTED"
+    assert me.json()["params"]["reason"] == "资质不足"
+    assert "资质不足" in me.json()["detail"]["message"]

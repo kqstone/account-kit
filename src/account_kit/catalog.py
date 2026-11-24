@@ -8,6 +8,13 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.approval import assert_login_allowed, count_pending, provision_user, set_user_approval
+from account_kit.bind_target import lookup_bind_user, verify_bind_target
+from account_kit.bind_ticket import (
+    attach_mfa_challenge,
+    consume_bind_ticket,
+    issue_bind_ticket,
+    load_bind_ticket,
+)
 from account_kit.i18n import account_error
 from account_kit.models import Role, User, UserTier, UserTierAssignment
 from account_kit.service import assert_role_code
@@ -191,14 +198,20 @@ async def apply_admin_user_patch(db, user: User, body) -> User:
 __all__ = [
     "apply_admin_user_patch",
     "assert_login_allowed",
+    "attach_mfa_challenge",
+    "consume_bind_ticket",
     "count_pending",
     "create_role",
     "create_tier",
     "delete_role",
     "delete_tier",
+    "issue_bind_ticket",
+    "load_bind_ticket",
+    "lookup_bind_user",
     "patch_role",
     "patch_tier",
     "provision_user",
     "set_user_approval",
     "set_user_tier",
+    "verify_bind_target",
 ]
