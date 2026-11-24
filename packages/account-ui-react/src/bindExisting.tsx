@@ -112,6 +112,7 @@ export function BindExistingAccountForm({
         }),
       )
       setCaptchaNeeded(false)
+      setPassedChallengeToken("")
       onSuccess(tokens.access_token, { tokens, username })
     } catch (err) {
       const body = err instanceof AccountApiError ? err.body : null
@@ -143,7 +144,6 @@ export function BindExistingAccountForm({
         const challenge = getMfaChallenge(err)
         if (challenge) {
           setMfa({ ...challenge, bindTicket: challenge.bindTicket || bindTicket, username })
-          if (challenge.challengeToken) setPassedChallengeToken(challenge.challengeToken)
           return
         }
         setError(formatError(err, F, locale))
@@ -169,7 +169,6 @@ export function BindExistingAccountForm({
   }
 
   async function verifyMfa(fields: TwoFactorVerifyPayload) {
-    if (fields.challengeToken) setPassedChallengeToken(fields.challengeToken)
     if (fields.force) setBindForce(true)
     return bindExisting(
       payload({
@@ -192,7 +191,20 @@ export function BindExistingAccountForm({
         ? (body as { detail?: { orphan_username?: string } | string }).detail
         : null
     const info = detail && typeof detail === "object" ? detail : null
-    return applyOrphanPending(err, info, code, status)
+    const token = mfa?.challengeToken || ""
+    if (applyOrphanPending(err, info, code, status)) {
+      if (token) setPassedChallengeToken(token)
+      return true
+    }
+    return false
+  }
+
+  function handleUsernameChange(next: string) {
+    if (reclaim) setError("")
+    setUsername(next)
+    setPassedChallengeToken("")
+    setReclaim(false)
+    setOrphanUsername("")
   }
 
   const nameLabel = usernameLabel || (allowReclaim ? S.usernameOrEmail : F.username)
@@ -203,7 +215,7 @@ export function BindExistingAccountForm({
       <form className="ak-form" onSubmit={(event) => void submitBind(event)}>
         <label className="ak-field">
           {nameLabel}
-          <input value={username} autoComplete="username" onChange={(e) => setUsername(e.target.value)} />
+          <input value={username} autoComplete="username" onChange={(e) => handleUsernameChange(e.target.value)} />
         </label>
         <label className="ak-field">
           {F.password}
@@ -237,10 +249,17 @@ export function BindExistingAccountForm({
           onError={handleMfaOuterError}
           onSuccess={(data) => {
             setMfa(null)
+            setPassedChallengeToken("")
             onSuccess(data.access_token, { tokens: data, username: mfa.username })
           }}
-          onExpired={() => setMfa(null)}
-          onCancel={() => setMfa(null)}
+          onExpired={() => {
+            setMfa(null)
+            setPassedChallengeToken("")
+          }}
+          onCancel={() => {
+            setMfa(null)
+            setPassedChallengeToken("")
+          }}
         />
       ) : null}
     </>

@@ -234,6 +234,84 @@ describe("BindExistingAccountForm", () => {
     wrapper.unmount()
   })
 
+  it("cancelling 2FA resubmits without challengeToken and can show the dialog again", async () => {
+    const client = mockClient()
+    const bindExisting = vi
+      .fn()
+      .mockRejectedValueOnce(
+        apiError(401, "MFA_REQUIRED", { challenge_token: "ch-1", bind_ticket: "tk-1", expires_in: 300 }),
+      )
+      .mockRejectedValueOnce(
+        apiError(401, "MFA_REQUIRED", { challenge_token: "ch-2", bind_ticket: "tk-1", expires_in: 300 }),
+      )
+    const wrapper = mount(BindExistingAccountForm, {
+      props: {
+        client: client as unknown as AccountClient,
+        bindTicket: "tk-1",
+        bindExisting,
+        completeMfaViaLogin2fa: false,
+      },
+    })
+    await fillAndSubmit(wrapper)
+    await vi.waitFor(() => {
+      expect(wrapper.find('input[placeholder="000000"]').exists()).toBe(true)
+    })
+    await wrapper.findAll("button").find((b) => b.text() === "取消")!.trigger("click")
+    await flushPromises()
+    expect(wrapper.find('input[placeholder="000000"]').exists()).toBe(false)
+    await wrapper.find("form.ak-form").trigger("submit")
+    await flushPromises()
+    expect(bindExisting).toHaveBeenCalledTimes(2)
+    expect(bindExisting.mock.calls[1][0].challengeToken || "").toBe("")
+    await vi.waitFor(() => {
+      expect(wrapper.find('input[placeholder="000000"]').exists()).toBe(true)
+    })
+    wrapper.unmount()
+  })
+
+  it("changing username after SSO_ORPHAN_PENDING clears the challenge token and resets reclaim", async () => {
+    const client = mockClient()
+    const bindExisting = vi
+      .fn()
+      .mockRejectedValueOnce(
+        apiError(401, "MFA_REQUIRED", { challenge_token: "ch-1", bind_ticket: "tk-1", expires_in: 300 }),
+      )
+      .mockRejectedValueOnce(apiError(409, "SSO_ORPHAN_PENDING", { orphan_username: "ghost" }))
+      .mockResolvedValueOnce({ access_token: "tok", token_type: "bearer" })
+    const wrapper = mount(BindExistingAccountForm, {
+      props: {
+        client: client as unknown as AccountClient,
+        bindTicket: "tk-1",
+        bindExisting,
+        allowReclaim: true,
+        completeMfaViaLogin2fa: false,
+      },
+    })
+    await fillAndSubmit(wrapper, "olduser")
+    await vi.waitFor(() => {
+      expect(wrapper.find('input[placeholder="000000"]').exists()).toBe(true)
+    })
+    await wrapper.find('input[placeholder="000000"]').setValue("123456")
+    await flushPromises()
+    await vi.waitFor(() => {
+      expect(wrapper.text()).toContain("待审空号 ghost")
+    })
+    await wrapper.find('input[autocomplete="username"]').setValue("newuser")
+    await flushPromises()
+    expect(wrapper.text()).not.toContain("待审空号 ghost")
+    expect(wrapper.find("form.ak-form button").text()).not.toBe("确认改绑")
+    await wrapper.find("form.ak-form").trigger("submit")
+    await flushPromises()
+    expect(wrapper.emitted("success")).toBeTruthy()
+    expect(bindExisting.mock.calls[2][0]).toMatchObject({
+      username: "newuser",
+      bindTicket: "tk-1",
+    })
+    expect(bindExisting.mock.calls[2][0].challengeToken || "").toBe("")
+    expect(bindExisting.mock.calls[2][0].reclaim).toBeFalsy()
+    wrapper.unmount()
+  })
+
   it("WeChat MFA completes via loginSecondFactor", async () => {
     const client = mockClient()
     client.loginSecondFactor.mockResolvedValue({ access_token: "tok", token_type: "bearer" })

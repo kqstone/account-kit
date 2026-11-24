@@ -99,6 +99,7 @@ export const BindExistingAccountForm = defineComponent({
           }),
         )
         captchaNeeded.value = false
+        passedChallengeToken.value = ""
         emit("success", tokens.access_token, { tokens, username: username.value })
       } catch (err) {
         const body = err instanceof AccountApiError ? err.body : null
@@ -133,7 +134,6 @@ export const BindExistingAccountForm = defineComponent({
           const challenge = getMfaChallenge(err)
           if (challenge) {
             mfa.value = { ...challenge, bindTicket: challenge.bindTicket || props.bindTicket, username: username.value }
-            if (challenge.challengeToken) passedChallengeToken.value = challenge.challengeToken
             return
           }
           error.value = formatError(err, F.value, locale.value)
@@ -163,7 +163,6 @@ export const BindExistingAccountForm = defineComponent({
     }
 
     async function verifyMfa(fields: TwoFactorVerifyPayload) {
-      if (fields.challengeToken) passedChallengeToken.value = fields.challengeToken
       if (fields.force) bindForce.value = true
       return props.bindExisting(
         payload({
@@ -186,7 +185,20 @@ export const BindExistingAccountForm = defineComponent({
           ? (body as { detail?: { orphan_username?: string } | string }).detail
           : null
       const info = detail && typeof detail === "object" ? detail : null
-      return applyOrphanPending(err, info, code, status)
+      const token = mfa.value?.challengeToken || ""
+      if (applyOrphanPending(err, info, code, status)) {
+        if (token) passedChallengeToken.value = token
+        return true
+      }
+      return false
+    }
+
+    function handleUsernameChange(next: string) {
+      if (reclaim.value) error.value = ""
+      username.value = next
+      passedChallengeToken.value = ""
+      reclaim.value = false
+      orphanUsername.value = ""
     }
 
     return () => {
@@ -215,7 +227,7 @@ export const BindExistingAccountForm = defineComponent({
                 value: username.value,
                 autocomplete: "username",
                 onInput: (event: Event) => {
-                  username.value = textOf(event)
+                  handleUsernameChange(textOf(event))
                 },
               }),
             ),
@@ -261,13 +273,16 @@ export const BindExistingAccountForm = defineComponent({
             handleError: handleMfaOuterError,
             onSuccess: (data: TokenPair) => {
               mfa.value = null
+              passedChallengeToken.value = ""
               emit("success", data.access_token, { tokens: data, username: username.value })
             },
             onExpired: () => {
               mfa.value = null
+              passedChallengeToken.value = ""
             },
             onCancel: () => {
               mfa.value = null
+              passedChallengeToken.value = ""
             },
           }),
         )
