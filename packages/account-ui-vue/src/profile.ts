@@ -3,7 +3,8 @@ import { ensureAccountStyle, type AccountClient, type AccountUser } from "./clie
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
-import { errorCodeOf, initialsOf, interpolate, messageOf, textOf, type DeepPartial } from "./utils"
+import { useSendCode } from "./sendCode"
+import { errorCodeOf, formatError, initialsOf, messageOf, textOf, type DeepPartial } from "./utils"
 
 export type GenderFallbacks = { male?: string; female?: string; unspecified?: string }
 
@@ -190,6 +191,137 @@ export const AvatarUploader = defineComponent({
   },
 })
 
+export const PasswordForm = defineComponent({
+  name: "PasswordForm",
+  props: {
+    client: { type: Object as PropType<AccountClient>, required: true },
+    token: { type: String, required: true },
+    user: { type: Object as PropType<AccountUser | null>, default: null },
+    language: { type: String, default: undefined },
+    labels: { type: Object as PropType<DeepPartial<ProfileLabels>>, default: null },
+    /**
+     * Email code for password changes (server ``change_password_require_email_code``):
+     * ``true`` always shows the code field, ``"auto"`` (default) shows it once the server
+     * answers ``EMAIL_CODE_REQUIRED``, ``false`` never.
+     */
+    passwordEmailCode: { type: [Boolean, String] as PropType<boolean | "auto">, default: "auto" },
+    className: { type: String, default: "" },
+  },
+  emits: ["password-changed", "error"],
+  setup(props, { emit, attrs }) {
+    ensureAccountStyle()
+    const oldPassword = ref("")
+    const newPassword = ref("")
+    const confirmPassword = ref("")
+    const emailCode = ref("")
+    const codeNeeded = ref(false)
+    const error = ref("")
+    const info = ref("")
+    const busy = ref(false)
+    const send = useSendCode()
+    const locale = useKitLocale(() => props.language)
+    const { messages } = useAccountI18n()
+    const L = () => resolveProfileLabels(locale.value, props.labels, messages)
+    const settingPassword = () => props.user?.password_set === false
+    const showCode = () =>
+      settingPassword() || props.passwordEmailCode === true || (props.passwordEmailCode === "auto" && codeNeeded.value)
+
+    async function sendPasswordCode() {
+      const email = props.user?.email
+      if (!email) return
+      error.value = ""
+      info.value = ""
+      await send.run(() => props.client.sendCode(email, "change_password", locale.value, props.token), {
+        email,
+        labels: L(),
+        locale: locale.value,
+        onError: (e) => emit("error", e),
+      })
+    }
+
+    async function submit() {
+      const labels = L()
+      error.value = ""
+      info.value = ""
+      if (newPassword.value !== confirmPassword.value) {
+        error.value = labels.passwordMismatch
+        return
+      }
+      if (!newPassword.value) return
+      busy.value = true
+      try {
+        try {
+          await props.client.changePassword(
+            props.token,
+            settingPassword() ? "" : oldPassword.value,
+            newPassword.value,
+            emailCode.value.trim() || undefined,
+          )
+        } catch (e) {
+          if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && (settingPassword() || props.passwordEmailCode !== false)) {
+            codeNeeded.value = true
+            error.value = labels.passwordEmailCodeHint
+            return
+          }
+          throw e
+        }
+        oldPassword.value = ""
+        newPassword.value = ""
+        confirmPassword.value = ""
+        emailCode.value = ""
+        emit("password-changed")
+        info.value = labels.passwordChanged
+      } catch (e) {
+        error.value = formatError(e, labels, locale.value)
+        emit("error", e)
+      } finally {
+        busy.value = false
+      }
+    }
+
+    return () => {
+      const labels = L()
+      const cls = ["ak-form", "ak-password-form", props.className, typeof attrs.class === "string" ? attrs.class : ""].filter(Boolean).join(" ")
+      return h(
+        "form",
+        {
+          class: cls,
+          onSubmit: (event: Event) => {
+            event.preventDefault()
+            void submit()
+          },
+        },
+        [
+          h("h3", { style: "margin:8px 0 0;font-size:15px" }, settingPassword() ? labels.setPassword : labels.changePassword),
+          settingPassword() ? h("p", { class: "ak-hint" }, labels.setPasswordHint) : null,
+          settingPassword()
+            ? null
+            : h("label", [labels.oldPassword, h("input", { type: "password", value: oldPassword.value, autocomplete: "current-password", onInput: (event: Event) => { oldPassword.value = textOf(event) } })]),
+          h("label", [labels.newPassword, h("input", { type: "password", value: newPassword.value, autocomplete: "new-password", onInput: (event: Event) => { newPassword.value = textOf(event) } })]),
+          h("label", [labels.confirmPassword, h("input", { type: "password", value: confirmPassword.value, autocomplete: "new-password", onInput: (event: Event) => { confirmPassword.value = textOf(event) } })]),
+          showCode()
+            ? h(CodeInputRow, {
+                label: labels.emailCode,
+                modelValue: emailCode.value,
+                maxlength: 6,
+                inputmode: "numeric",
+                autocomplete: "one-time-code",
+                placeholder: labels.emailCodePlaceholder,
+                buttonText: send.buttonText(labels, labels.sendCode),
+                buttonDisabled: send.buttonDisabled() || !props.user?.email,
+                "onUpdate:modelValue": (v: string) => { emailCode.value = v },
+                onButtonClick: () => void sendPasswordCode(),
+              })
+            : null,
+          error.value || send.error.value ? h("p", { class: "ak-error" }, error.value || send.error.value) : null,
+          info.value || send.info.value ? h("p", { class: "ak-success" }, info.value || send.info.value) : null,
+          h("button", { type: "submit", disabled: busy.value }, busy.value ? labels.saving : labels.save),
+        ],
+      )
+    }
+  },
+})
+
 export const ProfileFields = defineComponent({
   name: "ProfileFields",
   props: {
@@ -214,49 +346,9 @@ export const ProfileFields = defineComponent({
     const institution = ref(props.user?.institution || "")
     const gender = ref(props.user?.gender || "")
     const birth = ref(props.user?.birth_year_month || "")
-    const oldPassword = ref("")
-    const newPassword = ref("")
-    const confirmPassword = ref("")
-    const emailCode = ref("")
-    const codeNeeded = ref(false)
-    const sending = ref(false)
-    const cooldown = ref(0)
-    let cooldownTimer: ReturnType<typeof setInterval> | null = null
     const error = ref("")
     const info = ref("")
     const busy = ref(false)
-    onBeforeUnmount(() => {
-      if (cooldownTimer) clearInterval(cooldownTimer)
-    })
-    // 0.5.1: account without a user-known password -> "Set password" with email code, no old password.
-    const settingPassword = () => props.user?.password_set === false
-    const showCode = () =>
-      settingPassword() || props.passwordEmailCode === true || (props.passwordEmailCode === "auto" && codeNeeded.value)
-
-    async function sendPasswordCode() {
-      const labels = L()
-      const email = props.user?.email
-      if (!email) return
-      error.value = ""
-      sending.value = true
-      try {
-        await props.client.sendCode(email, "change_password", locale.value, props.token)
-        info.value = interpolate(labels.codeSentTo, { email })
-        cooldown.value = 60
-        if (cooldownTimer) clearInterval(cooldownTimer)
-        cooldownTimer = setInterval(() => {
-          cooldown.value -= 1
-          if (cooldown.value <= 0 && cooldownTimer) {
-            clearInterval(cooldownTimer)
-            cooldownTimer = null
-          }
-        }, 1000)
-      } catch (e) {
-        error.value = messageOf(e, labels.error)
-      } finally {
-        sending.value = false
-      }
-    }
 
     watch(
       () => props.user,
@@ -276,10 +368,6 @@ export const ProfileFields = defineComponent({
       const labels = L()
       error.value = ""
       info.value = ""
-      if (newPassword.value && newPassword.value !== confirmPassword.value) {
-        error.value = labels.passwordMismatch
-        return
-      }
       busy.value = true
       try {
         const patched = await props.client.patchMe(props.token, {
@@ -289,33 +377,9 @@ export const ProfileFields = defineComponent({
           birth_year_month: birth.value || null,
         })
         emit("saved", patched)
-        if (newPassword.value) {
-          try {
-            await props.client.changePassword(
-              props.token,
-              settingPassword() ? "" : oldPassword.value,
-              newPassword.value,
-              emailCode.value.trim() || undefined,
-            )
-          } catch (e) {
-            if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && (settingPassword() || props.passwordEmailCode !== false)) {
-              codeNeeded.value = true
-              error.value = labels.passwordEmailCodeHint
-              return
-            }
-            throw e
-          }
-          oldPassword.value = ""
-          newPassword.value = ""
-          confirmPassword.value = ""
-          emailCode.value = ""
-          emit("password-changed")
-          info.value = labels.passwordChanged
-        } else {
-          info.value = labels.saved
-        }
+        info.value = labels.saved
       } catch (e) {
-        error.value = messageOf(e, labels.error)
+        error.value = formatError(e, labels, locale.value)
       } finally {
         busy.value = false
       }
@@ -323,57 +387,47 @@ export const ProfileFields = defineComponent({
 
     return () => {
       const labels = L()
-      const cls = ["ak-form", props.className, typeof attrs.class === "string" ? attrs.class : ""].filter(Boolean).join(" ")
-      return h(
-        "form",
-        {
-          class: cls,
-          onSubmit: (event: Event) => {
-            event.preventDefault()
-            void submit()
+      const cls = ["ak-profile-fields", props.className, typeof attrs.class === "string" ? attrs.class : ""].filter(Boolean).join(" ")
+      return h("div", { class: cls }, [
+        h(
+          "form",
+          {
+            class: "ak-form",
+            onSubmit: (event: Event) => {
+              event.preventDefault()
+              void submit()
+            },
           },
-        },
-        [
-          h("label", [labels.fullName, h("input", { value: fullName.value, autocomplete: "name", onInput: (event: Event) => { fullName.value = textOf(event) } })]),
-          h("label", [labels.institution, h("input", { value: institution.value, onInput: (event: Event) => { institution.value = textOf(event) } })]),
-          h("label", [
-            labels.gender,
-            h("select", { value: gender.value, onChange: (event: Event) => { gender.value = textOf(event) } }, [
-              h("option", { value: "" }, labels.genderUnspecified),
-              h("option", { value: "male" }, labels.genderMale),
-              h("option", { value: "female" }, labels.genderFemale),
+          [
+            h("label", [labels.fullName, h("input", { value: fullName.value, autocomplete: "name", onInput: (event: Event) => { fullName.value = textOf(event) } })]),
+            h("label", [labels.institution, h("input", { value: institution.value, onInput: (event: Event) => { institution.value = textOf(event) } })]),
+            h("label", [
+              labels.gender,
+              h("select", { value: gender.value, onChange: (event: Event) => { gender.value = textOf(event) } }, [
+                h("option", { value: "" }, labels.genderUnspecified),
+                h("option", { value: "male" }, labels.genderMale),
+                h("option", { value: "female" }, labels.genderFemale),
+              ]),
             ]),
-          ]),
-          h("label", [labels.birth, h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })]),
-          props.showChangePassword
-            ? [
-                h("h3", { style: "margin:8px 0 0;font-size:15px" }, settingPassword() ? labels.setPassword : labels.changePassword),
-                settingPassword() ? h("p", { class: "ak-hint" }, labels.setPasswordHint) : null,
-                settingPassword() ? null : h("label", [labels.oldPassword, h("input", { type: "password", value: oldPassword.value, autocomplete: "current-password", onInput: (event: Event) => { oldPassword.value = textOf(event) } })]),
-                h("label", [labels.newPassword, h("input", { type: "password", value: newPassword.value, autocomplete: "new-password", onInput: (event: Event) => { newPassword.value = textOf(event) } })]),
-                h("label", [labels.confirmPassword, h("input", { type: "password", value: confirmPassword.value, autocomplete: "new-password", onInput: (event: Event) => { confirmPassword.value = textOf(event) } })]),
-                showCode()
-                  ? h(CodeInputRow, {
-                      label: labels.emailCode,
-                      modelValue: emailCode.value,
-                      maxlength: 6,
-                      inputmode: "numeric",
-                      autocomplete: "one-time-code",
-                      placeholder: labels.emailCodePlaceholder,
-                      buttonText: sending.value ? labels.sending : cooldown.value > 0 ? interpolate(labels.resendIn, { s: cooldown.value }) : labels.sendCode,
-                      buttonDisabled: sending.value || cooldown.value > 0 || !props.user?.email,
-                      "onUpdate:modelValue": (v: string) => { emailCode.value = v },
-                      onButtonClick: () => void sendPasswordCode(),
-                    })
-                  : null,
-              ]
-            : null,
-          slots.default?.(),
-          error.value ? h("p", { class: "ak-error" }, error.value) : null,
-          info.value ? h("p", { class: "ak-success" }, info.value) : null,
-          h("button", { type: "submit", disabled: busy.value }, busy.value ? labels.saving : labels.save),
-        ],
-      )
+            h("label", [labels.birth, h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })]),
+            slots.default?.(),
+            error.value ? h("p", { class: "ak-error" }, error.value) : null,
+            info.value ? h("p", { class: "ak-success" }, info.value) : null,
+            h("button", { type: "submit", disabled: busy.value }, busy.value ? labels.saving : labels.save),
+          ],
+        ),
+        props.showChangePassword
+          ? h(PasswordForm, {
+              client: props.client,
+              token: props.token,
+              user: props.user,
+              language: props.language,
+              labels: props.labels,
+              passwordEmailCode: props.passwordEmailCode,
+              onPasswordChanged: () => emit("password-changed"),
+            })
+          : null,
+      ])
     }
   },
 })

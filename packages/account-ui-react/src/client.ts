@@ -399,7 +399,7 @@ export function createAccountClient(baseUrl: string, options: AccountClientOptio
         "/send-code",
         { email, purpose, ...(lang ? { language: lang } : {}) },
         token ?? options.getToken?.() ?? null,
-      )
+      ) as Promise<CodeSentResult>
     },
     register(payload: Record<string, unknown>) {
       return json("/register", payload) as Promise<AccountUser>

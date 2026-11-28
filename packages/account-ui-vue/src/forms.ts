@@ -3,6 +3,7 @@ import { AccountApiError, ensureAccountStyle, type AccountClient } from "./clien
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, type FormLabels } from "./labels"
+import { useSendCode } from "./sendCode"
 import { formatError, interpolate, textOf, type DeepPartial } from "./utils"
 
 function field(label: string, input: ReturnType<typeof h>) {
@@ -206,8 +207,8 @@ export const RegisterForm = defineComponent({
     const roles = ref<Array<{ code: string; name: string }>>([])
     const error = ref("")
     const busy = ref(false)
-    const sending = ref(false)
     const pending = ref(false)
+    const send = useSendCode({ requireEmail: true })
 
     onMounted(async () => {
       try {
@@ -219,14 +220,13 @@ export const RegisterForm = defineComponent({
 
     async function sendCode() {
       error.value = ""
-      sending.value = true
-      try {
-        await props.client.sendCode(email.value.trim(), "register", locale.value)
-      } catch (err) {
-        error.value = formatError(err, L.value, locale.value)
-      } finally {
-        sending.value = false
-      }
+      const labels = L.value
+      await send.run(() => props.client.sendCode(email.value.trim(), "register", locale.value), {
+        email: email.value,
+        labels,
+        locale: locale.value,
+        extraHints: { EMAIL_TAKEN: labels.emailTakenHint },
+      })
     }
 
     async function submit() {
@@ -283,7 +283,7 @@ export const RegisterForm = defineComponent({
             ]),
           ),
           field(L.value.birthOptional, h("input", { type: "month", value: birth.value, onInput: (event: Event) => { birth.value = textOf(event) } })),
-          h(CodeInputRow, { label: L.value.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: sending.value ? L.value.sending : L.value.sendCode, buttonDisabled: sending.value, "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendCode() }),
+          h(CodeInputRow, { label: L.value.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: send.buttonText(L.value, L.value.sendCode, email.value), buttonDisabled: send.buttonDisabled(email.value), "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendCode() }),
           roles.value.length
             ? field(
                 L.value.role,
@@ -295,7 +295,8 @@ export const RegisterForm = defineComponent({
             : null,
           slots.default?.(),
           pending.value ? h("p", { class: "ak-success" }, L.value.registerPending) : null,
-          error.value ? h("p", { class: "ak-error" }, error.value) : null,
+          send.info.value ? h("p", { class: "ak-success" }, send.info.value) : null,
+          error.value || send.error.value ? h("p", { class: "ak-error" }, error.value || send.error.value) : null,
           h("button", { type: "submit", disabled: busy.value }, busy.value ? L.value.submitting : L.value.register),
         ],
       )
@@ -320,18 +321,15 @@ export const ResetPasswordForm = defineComponent({
     const password = ref("")
     const error = ref("")
     const busy = ref(false)
-    const sending = ref(false)
+    const send = useSendCode({ requireEmail: true })
 
     async function sendCode() {
       error.value = ""
-      sending.value = true
-      try {
-        await props.client.sendCode(email.value.trim(), "reset_password", locale.value)
-      } catch (err) {
-        error.value = formatError(err, L.value, locale.value)
-      } finally {
-        sending.value = false
-      }
+      await send.run(() => props.client.sendCode(email.value.trim(), "reset_password", locale.value), {
+        email: email.value,
+        labels: L.value,
+        locale: locale.value,
+      })
     }
 
     async function submit() {
@@ -359,9 +357,10 @@ export const ResetPasswordForm = defineComponent({
         },
         [
           field(L.value.email, h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
-          h(CodeInputRow, { label: L.value.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: sending.value ? L.value.sending : L.value.sendCode, buttonDisabled: sending.value, "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendCode() }),
+          h(CodeInputRow, { label: L.value.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: send.buttonText(L.value, L.value.sendCode, email.value), buttonDisabled: send.buttonDisabled(email.value), "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendCode() }),
           field(L.value.newPassword, h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
-          error.value ? h("p", { class: "ak-error" }, error.value) : null,
+          send.info.value ? h("p", { class: "ak-success" }, send.info.value) : null,
+          error.value || send.error.value ? h("p", { class: "ak-error" }, error.value || send.error.value) : null,
           h("button", { type: "submit", disabled: busy.value }, busy.value ? L.value.submitting : L.value.resetPassword),
         ],
       )

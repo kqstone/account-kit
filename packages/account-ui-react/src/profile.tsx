@@ -3,8 +3,8 @@ import { ensureAccountStyle, type AccountClient, type AccountUser, type ProfileU
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
-import { useCountdown } from "./security"
-import { errorCodeOf, initialsOf, interpolate, messageOf, type DeepPartial } from "./utils"
+import { useSendCode } from "./sendCode"
+import { errorCodeOf, formatError, initialsOf, messageOf, type DeepPartial } from "./utils"
 
 export type GenderFallbacks = { male?: string; female?: string; unspecified?: string }
 
@@ -201,6 +201,137 @@ export function AvatarUploader({
   )
 }
 
+export function PasswordForm({
+  client,
+  token,
+  user,
+  language,
+  labels,
+  passwordEmailCode = "auto",
+  className = "",
+  onPasswordChanged,
+  onError,
+}: {
+  client: AccountClient
+  token: string
+  user?: AccountUser | null
+  language?: string
+  labels?: DeepPartial<ProfileLabels> | null
+  /**
+   * Email code for password changes (server ``change_password_require_email_code``):
+   * ``true`` always shows the code field, ``"auto"`` (default) shows it once the server
+   * answers ``EMAIL_CODE_REQUIRED``, ``false`` never.
+   */
+  passwordEmailCode?: boolean | "auto"
+  className?: string
+  onPasswordChanged?: () => void
+  onError?: (error: unknown) => void
+}) {
+  ensureAccountStyle()
+  const locale = useKitLocale(language)
+  const { messages } = useAccountI18n()
+  const L = useMemo(() => resolveProfileLabels(locale, labels, messages), [locale, labels, messages])
+  const [oldPassword, setOldPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [emailCode, setEmailCode] = useState("")
+  const [codeNeeded, setCodeNeeded] = useState(false)
+  const [error, setError] = useState("")
+  const [info, setInfo] = useState("")
+  const [busy, setBusy] = useState(false)
+  const send = useSendCode()
+  const settingPassword = user?.password_set === false
+  const showCode = settingPassword || passwordEmailCode === true || (passwordEmailCode === "auto" && codeNeeded)
+
+  async function sendPasswordCode() {
+    const email = user?.email
+    if (!email) return
+    setError("")
+    setInfo("")
+    await send.run(() => client.sendCode(email, "change_password", locale, token), {
+      email,
+      labels: L,
+      locale,
+      onError,
+    })
+  }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault()
+    setError("")
+    setInfo("")
+    if (newPassword !== confirmPassword) {
+      setError(L.passwordMismatch)
+      return
+    }
+    if (!newPassword) return
+    setBusy(true)
+    try {
+      try {
+        await client.changePassword(token, settingPassword ? "" : oldPassword, newPassword, emailCode.trim() || undefined)
+      } catch (e) {
+        if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && (settingPassword || passwordEmailCode !== false)) {
+          setCodeNeeded(true)
+          setError(L.passwordEmailCodeHint)
+          return
+        }
+        throw e
+      }
+      setOldPassword("")
+      setNewPassword("")
+      setConfirmPassword("")
+      setEmailCode("")
+      onPasswordChanged?.()
+      setInfo(L.passwordChanged)
+    } catch (e) {
+      setError(formatError(e, L, locale))
+      onError?.(e)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <form className={["ak-form", "ak-password-form", className].filter(Boolean).join(" ")} onSubmit={submit}>
+      <h3 style={{ margin: "8px 0 0", fontSize: 15 }}>{settingPassword ? L.setPassword : L.changePassword}</h3>
+      {settingPassword ? <p className="ak-hint">{L.setPasswordHint}</p> : null}
+      {settingPassword ? null : (
+        <label>
+          {L.oldPassword}
+          <input type="password" value={oldPassword} autoComplete="current-password" onChange={(event) => setOldPassword(event.target.value)} />
+        </label>
+      )}
+      <label>
+        {L.newPassword}
+        <input type="password" value={newPassword} autoComplete="new-password" onChange={(event) => setNewPassword(event.target.value)} />
+      </label>
+      <label>
+        {L.confirmPassword}
+        <input type="password" value={confirmPassword} autoComplete="new-password" onChange={(event) => setConfirmPassword(event.target.value)} />
+      </label>
+      {showCode ? (
+        <CodeInputRow
+          label={L.emailCode}
+          value={emailCode}
+          maxLength={6}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder={L.emailCodePlaceholder}
+          onChange={setEmailCode}
+          buttonText={send.buttonText(L, L.sendCode)}
+          buttonDisabled={send.buttonDisabled() || !user?.email}
+          onButtonClick={() => void sendPasswordCode()}
+        />
+      ) : null}
+      {error || send.error ? <p className="ak-error">{error || send.error}</p> : null}
+      {info || send.info ? <p className="ak-success">{info || send.info}</p> : null}
+      <button type="submit" disabled={busy}>
+        {busy ? L.saving : L.save}
+      </button>
+    </form>
+  )
+}
+
 export function ProfileFields({
   client,
   token,
@@ -239,35 +370,9 @@ export function ProfileFields({
   const [institution, setInstitution] = useState(user?.institution || "")
   const [gender, setGender] = useState(user?.gender || "")
   const [birth, setBirth] = useState(user?.birth_year_month || "")
-  const [oldPassword, setOldPassword] = useState("")
-  const [newPassword, setNewPassword] = useState("")
-  const [confirmPassword, setConfirmPassword] = useState("")
-  const [emailCode, setEmailCode] = useState("")
-  const [codeNeeded, setCodeNeeded] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [cooldown, startCooldown] = useCountdown()
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [busy, setBusy] = useState(false)
-  // 0.5.1: account without a user-known password -> "Set password" with email code, no old password.
-  const settingPassword = user?.password_set === false
-  const showCode = settingPassword || passwordEmailCode === true || (passwordEmailCode === "auto" && codeNeeded)
-
-  async function sendPasswordCode() {
-    const email = user?.email
-    if (!email) return
-    setError("")
-    setSending(true)
-    try {
-      await client.sendCode(email, "change_password", locale, token)
-      setInfo(interpolate(L.codeSentTo, { email }))
-      startCooldown(60)
-    } catch (e) {
-      setError(messageOf(e, L.error))
-    } finally {
-      setSending(false)
-    }
-  }
 
   useEffect(() => {
     setFullName(user?.full_name || "")
@@ -280,10 +385,6 @@ export function ProfileFields({
     event.preventDefault()
     setError("")
     setInfo("")
-    if (newPassword && newPassword !== confirmPassword) {
-      setError(L.passwordMismatch)
-      return
-    }
     setBusy(true)
     try {
       const patched = await client.patchMe(token, {
@@ -293,95 +394,55 @@ export function ProfileFields({
         birth_year_month: birth || null,
       })
       onSaved?.(patched)
-      if (newPassword) {
-        try {
-          await client.changePassword(token, settingPassword ? "" : oldPassword, newPassword, emailCode.trim() || undefined)
-        } catch (e) {
-          if (errorCodeOf(e) === "EMAIL_CODE_REQUIRED" && (settingPassword || passwordEmailCode !== false)) {
-            setCodeNeeded(true)
-            setError(L.passwordEmailCodeHint)
-            return
-          }
-          throw e
-        }
-        setOldPassword("")
-        setNewPassword("")
-        setConfirmPassword("")
-        setEmailCode("")
-        onPasswordChanged?.()
-        setInfo(L.passwordChanged)
-      } else {
-        setInfo(L.saved)
-      }
+      setInfo(L.saved)
     } catch (e) {
-      setError(messageOf(e, L.error))
+      setError(formatError(e, L, locale))
     } finally {
       setBusy(false)
     }
   }
 
   return (
-    <form className={["ak-form", className].filter(Boolean).join(" ")} onSubmit={submit}>
-      <label>
-        {L.fullName}
-        <input value={fullName} autoComplete="name" onChange={(event) => setFullName(event.target.value)} />
-      </label>
-      <label>
-        {L.institution}
-        <input value={institution} onChange={(event) => setInstitution(event.target.value)} />
-      </label>
-      <label>
-        {L.gender}
-        <select value={gender} onChange={(event) => setGender(event.target.value)}>
-          <option value="">{L.genderUnspecified}</option>
-          <option value="male">{L.genderMale}</option>
-          <option value="female">{L.genderFemale}</option>
-        </select>
-      </label>
-      <label>
-        {L.birth}
-        <input type="month" value={birth} onChange={(event) => setBirth(event.target.value)} />
-      </label>
+    <div className={["ak-profile-fields", className].filter(Boolean).join(" ")}>
+      <form className="ak-form" onSubmit={submit}>
+        <label>
+          {L.fullName}
+          <input value={fullName} autoComplete="name" onChange={(event) => setFullName(event.target.value)} />
+        </label>
+        <label>
+          {L.institution}
+          <input value={institution} onChange={(event) => setInstitution(event.target.value)} />
+        </label>
+        <label>
+          {L.gender}
+          <select value={gender} onChange={(event) => setGender(event.target.value)}>
+            <option value="">{L.genderUnspecified}</option>
+            <option value="male">{L.genderMale}</option>
+            <option value="female">{L.genderFemale}</option>
+          </select>
+        </label>
+        <label>
+          {L.birth}
+          <input type="month" value={birth} onChange={(event) => setBirth(event.target.value)} />
+        </label>
+        {extra}
+        {error ? <p className="ak-error">{error}</p> : null}
+        {info ? <p className="ak-success">{info}</p> : null}
+        <button type="submit" disabled={busy}>
+          {busy ? L.saving : L.save}
+        </button>
+      </form>
       {showChangePassword ? (
-        <>
-          <h3 style={{ margin: "8px 0 0", fontSize: 15 }}>{settingPassword ? L.setPassword : L.changePassword}</h3>
-          {settingPassword ? <p className="ak-hint">{L.setPasswordHint}</p> : null}
-          {settingPassword ? null : (
-            <label>
-              {L.oldPassword}
-              <input type="password" value={oldPassword} autoComplete="current-password" onChange={(event) => setOldPassword(event.target.value)} />
-            </label>
-          )}
-          <label>
-            {L.newPassword}
-            <input type="password" value={newPassword} autoComplete="new-password" onChange={(event) => setNewPassword(event.target.value)} />
-          </label>
-          <label>
-            {L.confirmPassword}
-            <input type="password" value={confirmPassword} autoComplete="new-password" onChange={(event) => setConfirmPassword(event.target.value)} />
-          </label>
-          {showCode ? (
-            <CodeInputRow
-              label={L.emailCode}
-              value={emailCode}
-              maxLength={6}
-              inputMode="numeric"
-              autoComplete="one-time-code"
-              placeholder={L.emailCodePlaceholder}
-              onChange={setEmailCode}
-              buttonText={sending ? L.sending : cooldown > 0 ? interpolate(L.resendIn, { s: cooldown }) : L.sendCode}
-              buttonDisabled={sending || cooldown > 0 || !user?.email}
-              onButtonClick={() => void sendPasswordCode()}
-            />
-          ) : null}
-        </>
+        <PasswordForm
+          client={client}
+          token={token}
+          user={user}
+          language={language}
+          labels={labels}
+          passwordEmailCode={passwordEmailCode}
+          onPasswordChanged={onPasswordChanged}
+        />
       ) : null}
-      {extra}
-      {error ? <p className="ak-error">{error}</p> : null}
-      {info ? <p className="ak-success">{info}</p> : null}
-      <button type="submit" disabled={busy}>
-        {busy ? L.saving : L.save}
-      </button>
-    </form>
+    </div>
   )
 }

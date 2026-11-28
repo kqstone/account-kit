@@ -3,7 +3,8 @@ import { ensureAccountStyle, type AccountClient, type AccountUser } from "./clie
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
-import { interpolate, messageOf, type DeepPartial } from "./utils"
+import { useSendCode } from "./sendCode"
+import { formatError, type DeepPartial } from "./utils"
 
 /** Split a single "2FA code" input into a TOTP code or a recovery code. */
 export function splitSecondFactor(value: string) {
@@ -132,23 +133,17 @@ export function ChangeEmailForm({
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [busy, setBusy] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [left, start] = useCountdown()
+  const send = useSendCode({ requireEmail: true })
 
   async function sendCode() {
     setError("")
     setInfo("")
-    setSending(true)
-    try {
-      const sent = await client.sendChangeEmailCode(token, newEmail.trim(), { language: locale })
-      setInfo(interpolate(L.codeSentTo, { email: sent.email || newEmail.trim() }))
-      start(sent.cooldown || 60)
-    } catch (e) {
-      setError(messageOf(e, L.error))
-      onError?.(e)
-    } finally {
-      setSending(false)
-    }
+    await send.run(() => client.sendChangeEmailCode(token, newEmail.trim(), { language: locale }), {
+      email: newEmail,
+      labels: L,
+      locale,
+      onError,
+    })
   }
 
   async function submit(event: FormEvent) {
@@ -163,7 +158,7 @@ export function ChangeEmailForm({
       setPassword("")
       onChanged?.(updated)
     } catch (e) {
-      setError(messageOf(e, L.error))
+      setError(formatError(e, L, locale))
       onError?.(e)
     } finally {
       setBusy(false)
@@ -185,8 +180,8 @@ export function ChangeEmailForm({
         autoComplete="one-time-code"
         placeholder={L.emailCodePlaceholder}
         onChange={setCode}
-        buttonText={sending ? L.sending : left > 0 ? interpolate(L.resendIn, { s: left }) : L.sendCode}
-        buttonDisabled={sending || left > 0 || !newEmail.trim()}
+        buttonText={send.buttonText(L, L.sendCode, newEmail)}
+        buttonDisabled={send.buttonDisabled(newEmail)}
         onButtonClick={() => void sendCode()}
       />
       {requirePassword ? (
@@ -195,8 +190,8 @@ export function ChangeEmailForm({
           <input type="password" value={password} autoComplete="current-password" onChange={(event) => setPassword(event.target.value)} />
         </label>
       ) : null}
-      {error ? <p className="ak-error">{error}</p> : null}
-      {info ? <p className="ak-success">{info}</p> : null}
+      {error || send.error ? <p className="ak-error">{error || send.error}</p> : null}
+      {info || send.info ? <p className="ak-success">{info || send.info}</p> : null}
       <button type="submit" disabled={busy || !code.trim()}>
         {busy ? L.saving : L.confirmChangeEmail}
       </button>
@@ -238,20 +233,14 @@ export function DeleteAccountForm({
   const [ack, setAck] = useState(false)
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const [sending, setSending] = useState(false)
-  const [left, start] = useCountdown()
+  const send = useSendCode()
 
   async function sendEmail() {
     setError("")
-    setSending(true)
-    try {
-      const sent = await client.sendDeleteAccountEmailCode(token, locale)
-      start(sent.cooldown || 60)
-    } catch (e) {
-      setError(messageOf(e, L.error))
-    } finally {
-      setSending(false)
-    }
+    await send.run(() => client.sendDeleteAccountEmailCode(token, locale), {
+      labels: L,
+      locale,
+    })
   }
 
   async function submit(event: FormEvent) {
@@ -266,7 +255,7 @@ export function DeleteAccountForm({
       })
       onDeleted?.(result)
     } catch (e) {
-      setError(messageOf(e, L.error))
+      setError(formatError(e, L, locale))
       onError?.(e)
     } finally {
       setBusy(false)
@@ -290,8 +279,8 @@ export function DeleteAccountForm({
       {twoFactorEnabled && emailCodeAvailable ? (
         <div className="ak-row">
           <input className="ak-input" value={emailCode} maxLength={6} placeholder={L.emailCodePlaceholder} onChange={(event) => setEmailCode(event.target.value)} />
-          <button type="button" disabled={sending || left > 0} onClick={() => void sendEmail()}>
-            {sending ? L.sending : left > 0 ? interpolate(L.resendIn, { s: left }) : L.sendCode}
+          <button type="button" disabled={send.buttonDisabled()} onClick={() => void sendEmail()}>
+            {send.buttonText(L, L.sendCode)}
           </button>
         </div>
       ) : null}
@@ -299,7 +288,8 @@ export function DeleteAccountForm({
         <input type="checkbox" checked={ack} onChange={(event) => setAck(event.target.checked)} />
         {L.deleteAccountTyped}
       </label>
-      {error ? <p className="ak-error">{error}</p> : null}
+      {send.info ? <p className="ak-success">{send.info}</p> : null}
+      {error || send.error ? <p className="ak-error">{error || send.error}</p> : null}
       <button type="submit" className="ak-btn ak-btn-danger" disabled={busy || !ack || !password}>
         {L.deleteAccountConfirm}
       </button>
