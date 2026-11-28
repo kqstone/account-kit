@@ -75,7 +75,7 @@ export {
   secondFactorFields,
 } from "./mfa"
 export type { MfaChallenge, SecondFactor } from "./mfa"
-export { AvatarUploader, ProfileFields, UserAvatar } from "./profile"
+export { AvatarUploader, PasswordForm, ProfileFields, UserAvatar } from "./profile"
 export type { GenderFallbacks } from "./profile"
 export type { RenderQr } from "./qr"
 export { CaptchaImage, ChangeEmailForm, DeleteAccountForm, LogoutButton, splitSecondFactor, useCountdown } from "./security"

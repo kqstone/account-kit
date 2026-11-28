@@ -68,6 +68,9 @@ from account_kit.config import AccountKitConfig, SmtpConfig
 | `send_code_rate_limit_ip` | `int` | `10` | 同一 IP 在窗口时间内最多发送验证码次数（0 为不限制） |
 | `send_code_rate_limit_email` | `int` | `5` | 同一邮箱在窗口时间内最多接收验证码次数（0 为不限制） |
 | `send_code_rate_window_seconds` | `int` | `3600` | 验证码发信限流统计时间窗口（秒，默认 1 小时） |
+| `otp_resend_window_seconds` | `int` | `120` | 同一邮箱同一用途最短重发间隔（秒），作用于 `POST /send-code`。这不是 IP / 次数限流；`0` 关闭间隔。验证码本身 TTL 仍为 5 分钟 |
+| `change_email_cooldown_seconds` | `int` | `120` | 换绑邮箱发码最短间隔（秒）；`0` 关闭 |
+| `email_code_cooldown_seconds` | `int` | `120` | 2FA 登录 / 关闭 2FA / 注销等邮箱码最短间隔（秒）；`0` 关闭 |
 | `reset_password_rate_limit_ip` | `int` | `10` | 找回密码端点同一 IP 限额（0 为不限制） |
 | `reset_password_rate_window_seconds` | `int` | `3600` | 找回密码端点限流窗口（秒） |
 | `register_rate_limit_ip` | `int` | `0` | 注册端点同一 IP 限额（0 为不限制） |

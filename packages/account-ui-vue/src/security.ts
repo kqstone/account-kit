@@ -1,35 +1,16 @@
-import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
-import { ensureAccountStyle, type AccountClient, type AccountUser, type CodeSentResult } from "./client"
+import { defineComponent, h, onMounted, ref, type PropType } from "vue"
+import { ensureAccountStyle, type AccountClient, type AccountUser } from "./client"
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveProfileLabels, type ProfileLabels } from "./labels"
-import { interpolate, messageOf, textOf, type DeepPartial } from "./utils"
+import { useSendCode } from "./sendCode"
+import { formatError, textOf, type DeepPartial } from "./utils"
 
 /** Split a single "2FA code" input into a TOTP code or a recovery code. */
 export function splitSecondFactor(value: string) {
   const cleaned = value.trim()
   if (!cleaned) return { code: "", recoveryCode: "" }
   return /^\d[\d\s]*$/.test(cleaned) ? { code: cleaned.replace(/\s+/g, ""), recoveryCode: "" } : { code: "", recoveryCode: cleaned }
-}
-
-function useCountdown() {
-  const left = ref(0)
-  let timer: ReturnType<typeof setInterval> | null = null
-  function start(seconds: number) {
-    left.value = Math.max(0, Math.floor(seconds))
-    if (timer) clearInterval(timer)
-    timer = setInterval(() => {
-      left.value -= 1
-      if (left.value <= 0 && timer) {
-        clearInterval(timer)
-        timer = null
-      }
-    }, 1000)
-  }
-  onBeforeUnmount(() => {
-    if (timer) clearInterval(timer)
-  })
-  return { left, start }
 }
 
 /** Image captcha (``client.captcha()``): click the image to reload. Emits ``change`` with the captcha id. */
@@ -109,8 +90,7 @@ export const ChangeEmailForm = defineComponent({
     const error = ref("")
     const info = ref("")
     const busy = ref(false)
-    const sending = ref(false)
-    const { left, start } = useCountdown()
+    const send = useSendCode({ requireEmail: true })
     const locale = useKitLocale(() => props.language)
     const { messages } = useAccountI18n()
     const L = () => resolveProfileLabels(locale.value, props.labels, messages)
@@ -118,17 +98,10 @@ export const ChangeEmailForm = defineComponent({
     async function sendCode() {
       error.value = ""
       info.value = ""
-      sending.value = true
-      try {
-        const sent: CodeSentResult = await props.client.sendChangeEmailCode(props.token, newEmail.value.trim(), { language: locale.value })
-        info.value = interpolate(L().codeSentTo, { email: sent.email || newEmail.value.trim() })
-        start(sent.cooldown || 60)
-      } catch (e) {
-        error.value = messageOf(e, L().error)
-        emit("error", e)
-      } finally {
-        sending.value = false
-      }
+      await send.run(
+        () => props.client.sendChangeEmailCode(props.token, newEmail.value.trim(), { language: locale.value }),
+        { email: newEmail.value, labels: L(), locale: locale.value, onError: (e) => emit("error", e) },
+      )
     }
 
     async function submit() {
@@ -142,7 +115,7 @@ export const ChangeEmailForm = defineComponent({
         password.value = ""
         emit("changed", user)
       } catch (e) {
-        error.value = messageOf(e, L().error)
+        error.value = formatError(e, L(), locale.value)
         emit("error", e)
       } finally {
         busy.value = false
@@ -170,16 +143,16 @@ export const ChangeEmailForm = defineComponent({
             inputmode: "numeric",
             autocomplete: "one-time-code",
             placeholder: labels.emailCodePlaceholder,
-            buttonText: sending.value ? labels.sending : left.value > 0 ? interpolate(labels.resendIn, { s: left.value }) : labels.sendCode,
-            buttonDisabled: sending.value || left.value > 0 || !newEmail.value.trim(),
+            buttonText: send.buttonText(labels, labels.sendCode, newEmail.value),
+            buttonDisabled: send.buttonDisabled(newEmail.value),
             "onUpdate:modelValue": (v: string) => { code.value = v },
             onButtonClick: () => void sendCode(),
           }),
           props.requirePassword
             ? h("label", [labels.oldPassword, h("input", { type: "password", value: password.value, autocomplete: "current-password", onInput: (e: Event) => { password.value = textOf(e) } })])
             : null,
-          error.value ? h("p", { class: "ak-error" }, error.value) : null,
-          info.value ? h("p", { class: "ak-success" }, info.value) : null,
+          error.value || send.error.value ? h("p", { class: "ak-error" }, error.value || send.error.value) : null,
+          info.value || send.info.value ? h("p", { class: "ak-success" }, info.value || send.info.value) : null,
           h("button", { type: "submit", disabled: busy.value || !code.value.trim() }, busy.value ? labels.saving : labels.confirmChangeEmail),
         ],
       )
@@ -210,23 +183,17 @@ export const DeleteAccountForm = defineComponent({
     const ack = ref(false)
     const error = ref("")
     const busy = ref(false)
-    const sending = ref(false)
-    const { left, start } = useCountdown()
+    const send = useSendCode()
     const locale = useKitLocale(() => props.language)
     const { messages } = useAccountI18n()
     const L = () => resolveProfileLabels(locale.value, props.labels, messages)
 
     async function sendEmail() {
       error.value = ""
-      sending.value = true
-      try {
-        const sent = await props.client.sendDeleteAccountEmailCode(props.token, locale.value)
-        start(sent.cooldown || 60)
-      } catch (e) {
-        error.value = messageOf(e, L().error)
-      } finally {
-        sending.value = false
-      }
+      await send.run(() => props.client.sendDeleteAccountEmailCode(props.token, locale.value), {
+        labels: L(),
+        locale: locale.value,
+      })
     }
 
     async function submit() {
@@ -240,7 +207,7 @@ export const DeleteAccountForm = defineComponent({
         })
         emit("deleted", result)
       } catch (e) {
-        error.value = messageOf(e, L().error)
+        error.value = formatError(e, L(), locale.value)
         emit("error", e)
       } finally {
         busy.value = false
@@ -270,8 +237,8 @@ export const DeleteAccountForm = defineComponent({
                 h("input", { class: "ak-input", value: emailCode.value, maxlength: 6, placeholder: labels.emailCodePlaceholder, onInput: (e: Event) => { emailCode.value = textOf(e) } }),
                 h(
                   "button",
-                  { type: "button", disabled: sending.value || left.value > 0, onClick: () => void sendEmail() },
-                  sending.value ? labels.sending : left.value > 0 ? interpolate(labels.resendIn, { s: left.value }) : labels.sendCode,
+                  { type: "button", disabled: send.buttonDisabled(), onClick: () => void sendEmail() },
+                  send.buttonText(labels, labels.sendCode),
                 ),
               ])
             : null,
@@ -279,7 +246,8 @@ export const DeleteAccountForm = defineComponent({
             h("input", { type: "checkbox", checked: ack.value, onChange: (e: Event) => { ack.value = (e.target as HTMLInputElement).checked } }),
             labels.deleteAccountTyped,
           ]),
-          error.value ? h("p", { class: "ak-error" }, error.value) : null,
+          send.info.value ? h("p", { class: "ak-success" }, send.info.value) : null,
+          error.value || send.error.value ? h("p", { class: "ak-error" }, error.value || send.error.value) : null,
           h("button", { type: "submit", class: "ak-btn ak-btn-danger", disabled: busy.value || !ack.value || !password.value }, labels.deleteAccountConfirm),
         ],
       )

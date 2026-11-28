@@ -71,6 +71,35 @@ export function formatError(
   return messageOf(error, fallback)
 }
 
+/** Default / fallback resend wait, matching server ``otp_resend_window_seconds``. */
+export const DEFAULT_SEND_CODE_COOLDOWN = 120
+
+const SEND_CODE_RATE_LIMIT_CODES = new Set(["EMAIL_CODE_TOO_FREQUENT", "RATE_LIMITED", "SEND_CODE_RATE_LIMITED"])
+
+/** Simple front-end check: local-part, ``@``, domain containing a dot. */
+export function isSimpleEmail(value: string): boolean {
+  const email = String(value || "").trim()
+  const at = email.indexOf("@")
+  if (at <= 0 || /\s/.test(email)) return false
+  const domain = email.slice(at + 1)
+  return domain.includes(".")
+}
+
+export function isSendCodeRateLimited(code?: string | null): boolean {
+  const resolved = canonicalErrorCode(code) || code || ""
+  return SEND_CODE_RATE_LIMIT_CODES.has(resolved)
+}
+
+export function cooldownFromResult(result?: { cooldown?: number } | null): number {
+  const n = Number(result?.cooldown)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_SEND_CODE_COOLDOWN
+}
+
+export function retryAfterFromError(error: unknown): number {
+  const n = Number(errorParamsOf(error).retry_after)
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : DEFAULT_SEND_CODE_COOLDOWN
+}
+
 export function textOf(event: Event) {
   return (event.target as HTMLInputElement).value
 }

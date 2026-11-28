@@ -1,4 +1,4 @@
-import { defineComponent, h, onBeforeUnmount, onMounted, ref, type PropType } from "vue"
+import { defineComponent, h, onMounted, ref, type PropType } from "vue"
 import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TokenPair, type TrustedDevice, type TwoFactorStatus } from "./client"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveTwoFactorLabels, type TwoFactorLabels } from "./labels"
@@ -19,6 +19,7 @@ import {
 } from "./mfa"
 import { renderQrDataUrl, type RenderQr } from "./qr"
 import { clearTrustedDeviceTokensForUser, saveTrustedDeviceToken } from "./trustedDevice"
+import { useSendCode } from "./sendCode"
 import { formatDateTime, interpolate, textOf, type DeepPartial } from "./utils"
 
 export type TwoFactorVerifyPayload = {
@@ -76,9 +77,7 @@ export const TwoFactorSettings = defineComponent({
     const qrDataUrl = ref("")
     const recoveryCodes = ref<string[]>([])
     const savedAck = ref(false)
-    const emailMasked = ref("")
-    const cooldown = ref(0)
-    let cooldownTimer: ReturnType<typeof setInterval> | null = null
+    const send = useSendCode()
 
     const locale = useKitLocale(() => props.language)
     const { messages } = useAccountI18n()
@@ -110,7 +109,6 @@ export const TwoFactorSettings = defineComponent({
       setupSecret.value = ""
       qrDataUrl.value = ""
       emailCode.value = ""
-      emailMasked.value = ""
       savedAck.value = false
     }
 
@@ -132,19 +130,21 @@ export const TwoFactorSettings = defineComponent({
       }
     }
 
-    function startCooldown(sec = 60) {
-      cooldown.value = sec
-      if (cooldownTimer) clearInterval(cooldownTimer)
-      cooldownTimer = setInterval(() => {
-        cooldown.value -= 1
-        if (cooldown.value <= 0 && cooldownTimer) clearInterval(cooldownTimer)
-      }, 1000)
+    async function sendDisableEmail() {
+      const labels = L()
+      error.value = ""
+      await send.run(() => props.client.sendDisableEmailCode(props.token, locale.value), {
+        labels,
+        locale: locale.value,
+        successText: (res) => {
+          const email = (res && "email" in res && res.email) || ""
+          return email ? interpolate(labels.emailSentTo, { email }) : labels.emailSentTo
+        },
+      })
+      if (send.error.value) error.value = send.error.value
     }
 
     onMounted(() => void load())
-    onBeforeUnmount(() => {
-      if (cooldownTimer) clearInterval(cooldownTimer)
-    })
 
     return () => {
       const labels = L()
@@ -179,24 +179,11 @@ export const TwoFactorSettings = defineComponent({
                 onClick: () => {
                   factor.value = FACTOR_EMAIL
                   error.value = ""
-                  if (cooldown.value <= 0) void sendEmail()
+                  if (send.left.value <= 0) void sendDisableEmail()
                 },
               })
             : null,
         ])
-
-      async function sendEmail() {
-        await run(async () => {
-          try {
-            const res = await props.client.sendDisableEmailCode(props.token, locale.value)
-            emailMasked.value = res.email || ""
-            startCooldown(Number(res.cooldown) || 60)
-          } catch (e) {
-            if (errorCodeOf(e) === "EMAIL_CODE_TOO_FREQUENT") startCooldown()
-            throw e
-          }
-        })
-      }
 
       const recoveryView = () =>
         h("div", { class: "ak-section" }, [
@@ -356,15 +343,15 @@ export const TwoFactorSettings = defineComponent({
                   ? h("input", { class: "ak-input", value: recoveryCode.value, autocomplete: "off", placeholder: "xxxx-xxxx", onInput: (event: Event) => { recoveryCode.value = textOf(event) } })
                   : h("span", { class: "ak-row" }, [
                       totpInput(emailCode.value, (v) => { emailCode.value = v }, "ak-input ak-code"),
-                      btn("outline", cooldown.value > 0 ? interpolate(labels.resendIn, { s: cooldown.value }) : labels.sendEmailCode, {
-                        disabled: busy.value || cooldown.value > 0,
-                        onClick: () => void sendEmail(),
+                      btn("outline", send.buttonText(labels, labels.sendEmailCode), {
+                        disabled: busy.value || send.buttonDisabled(),
+                        onClick: () => void sendDisableEmail(),
                       }),
                     ]),
             ),
-            factor.value === FACTOR_EMAIL && emailMasked.value ? h("p", { class: "ak-muted" }, interpolate(labels.emailSentTo, { email: emailMasked.value })) : null,
+            factor.value === FACTOR_EMAIL && send.info.value ? h("p", { class: "ak-muted" }, send.info.value) : null,
             factorLinks(mode.value === "disable" && !!status.value?.email_available),
-            error.value ? h("p", { class: "ak-error" }, error.value) : null,
+            error.value || send.error.value ? h("p", { class: "ak-error" }, error.value || send.error.value) : null,
             h("div", { class: "ak-actions" }, [
               btn("outline", labels.cancel, { disabled: busy.value, onClick: reset }),
               btn(mode.value === "disable" ? "danger" : "primary", mode.value === "disable" ? labels.disable : labels.regenerate, {
@@ -495,28 +482,13 @@ export const TwoFactorLoginDialog = defineComponent({
     const busy = ref(false)
     const error = ref("")
     const conflictDevice = ref("")
-    const emailMasked = ref("")
-    const cooldown = ref(0)
-    let cooldownTimer: ReturnType<typeof setInterval> | null = null
+    const send = useSendCode()
 
     const locale = useKitLocale(() => props.language)
     const { messages } = useAccountI18n()
     const L = () => resolveTwoFactorLabels(locale.value, props.labels, messages)
     const challengeInfo = () => normalizeChallenge(props.challenge)
     const inputs = () => ({ code: code.value, recoveryCode: recoveryCode.value, emailCode: emailCode.value })
-
-    function startCooldown(sec = 60) {
-      cooldown.value = sec
-      if (cooldownTimer) clearInterval(cooldownTimer)
-      cooldownTimer = setInterval(() => {
-        cooldown.value -= 1
-        if (cooldown.value <= 0 && cooldownTimer) clearInterval(cooldownTimer)
-      }, 1000)
-    }
-
-    onBeforeUnmount(() => {
-      if (cooldownTimer) clearInterval(cooldownTimer)
-    })
 
     async function submit(force: boolean) {
       if (busy.value) return
@@ -563,26 +535,28 @@ export const TwoFactorLoginDialog = defineComponent({
     }
 
     async function sendEmail() {
-      if (busy.value) return
       const labels = L()
       const info = challengeInfo()
       if (!info) return
-      busy.value = true
       error.value = ""
-      try {
-        const res = await (props.sendEmailCode
-          ? props.sendEmailCode(info.challengeToken, locale.value)
-          : props.client.sendLoginEmailCode(info.challengeToken, locale.value))
-        emailMasked.value = res.email || ""
-        startCooldown(Number(res.cooldown) || 60)
-      } catch (e) {
-        const errCode = errorCodeOf(e)
-        if (errCode === "MFA_CHALLENGE_INVALID") emit("expired", twoFactorErrorMessage(e, labels))
-        else error.value = twoFactorErrorMessage(e, labels)
-        if (errCode === "EMAIL_CODE_TOO_FREQUENT") startCooldown()
-      } finally {
-        busy.value = false
-      }
+      await send.run(
+        () =>
+          props.sendEmailCode
+            ? props.sendEmailCode(info.challengeToken, locale.value)
+            : props.client.sendLoginEmailCode(info.challengeToken, locale.value),
+        {
+          labels,
+          locale: locale.value,
+          successText: (res) => {
+            const email = (res && "email" in res && res.email) || ""
+            return email ? interpolate(labels.emailSentTo, { email }) : labels.emailSentTo
+          },
+          onError: (e) => {
+            if (errorCodeOf(e) === "MFA_CHALLENGE_INVALID") emit("expired", twoFactorErrorMessage(e, labels))
+          },
+        },
+      )
+      if (send.error.value) error.value = send.error.value
     }
 
     return () => {
@@ -651,18 +625,18 @@ export const TwoFactorLoginDialog = defineComponent({
                   : [
                       h("span", { class: "ak-row" }, [
                         totpInput(emailCode.value, (v) => { emailCode.value = v }),
-                        btn("outline", cooldown.value > 0 ? interpolate(labels.resendIn, { s: cooldown.value }) : labels.sendEmailCode, {
-                          disabled: busy.value || cooldown.value > 0,
+                        btn("outline", send.buttonText(labels, labels.sendEmailCode), {
+                          disabled: busy.value || send.buttonDisabled(),
                           onClick: () => void sendEmail(),
                         }),
                       ]),
-                      emailMasked.value ? h("p", { class: "ak-muted" }, interpolate(labels.emailSentTo, { email: emailMasked.value })) : null,
+                      send.info.value ? h("p", { class: "ak-muted" }, send.info.value) : null,
                     ],
               h("label", { class: "ak-check" }, [
                 h("input", { type: "checkbox", checked: trustDevice.value, onChange: (event: Event) => { trustDevice.value = (event.target as HTMLInputElement).checked } }),
                 h("span", interpolate(labels.login.trustDevice, { days })),
               ]),
-              error.value ? h("div", { class: "ak-error" }, error.value) : null,
+              error.value || send.error.value ? h("div", { class: "ak-error" }, error.value || send.error.value) : null,
               h("div", { class: "ak-actions", style: "justify-content:flex-end" }, [
                 btn("outline", labels.cancel, { disabled: busy.value, onClick: () => { if (!busy.value) emit("cancel") } }),
                 btn("primary", busy.value ? labels.verifying : labels.verify, { disabled: busy.value || !canSubmit, submit: true }),
@@ -677,7 +651,7 @@ export const TwoFactorLoginDialog = defineComponent({
                   onClick: () => {
                     factor.value = FACTOR_EMAIL
                     error.value = ""
-                    if (cooldown.value <= 0) void sendEmail()
+                    if (send.left.value <= 0) void sendEmail()
                   },
                 })
               : null,

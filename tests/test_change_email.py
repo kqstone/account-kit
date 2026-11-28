@@ -22,7 +22,8 @@ async def test_patch_me_email_requires_verification(api):
     assert me.json()["email"] == "em1@example.com"
 
     info, code = await _code_for(api, headers, "new1@example.com")
-    assert info["email"] == "ne***@example.com" and info["cooldown"] == 60
+    assert info["email"] == "ne***@example.com" and info["cooldown"] == 120
+    assert info["expires_in"] == 300
     no_pw = await client.patch("/api/auth/me", json={"email": "new1@example.com", "email_code": code}, headers=headers)
     assert no_pw.status_code == 400
     assert no_pw.json()["detail"] == "当前密码错误"
@@ -52,6 +53,8 @@ async def test_post_me_email_flow_and_binding(api):
     again = await client.post("/api/auth/me/email/send-code", json={"new_email": "shared@example.com"}, headers=bearer(b1))
     assert again.status_code == 429
     assert again.json()["detail"]["code"] == "EMAIL_CODE_TOO_FREQUENT"
+    assert again.json()["detail"]["retry_after"] >= 1
+    assert again.headers.get("retry-after")
     ok = await client.post(
         "/api/auth/me/email",
         json={"new_email": "shared@example.com", "code": code, "password": "secret1"},

@@ -11,7 +11,7 @@ from sqlalchemy import select
 from account_kit.config import AccountKitConfig
 from account_kit.i18n import account_error, t
 from account_kit.models import Role, RoleChangeRequest, User, UserTier, UserTierAssignment
-from account_kit.otp import check_code, normalize_email
+from account_kit.otp import check_code, email_looks_valid, normalize_email
 from account_kit.profile import birth_year_month_to_date, format_birth_year_month, normalize_gender
 from account_kit.schemas import RegisterRequest, UserProfileUpdate, UserResponse
 from account_kit.security import create_access_token, hash_password, verify_password
@@ -542,7 +542,7 @@ PURPOSE_DELETE_ACCOUNT = "delete_account"
 
 async def assert_email_available(db: AsyncSession, config: AccountKitConfig, user: User, email: str) -> str:
     nxt = normalize_email(email)
-    if not nxt or "@" not in nxt:
+    if not email_looks_valid(nxt):
         raise account_error(400, "EMAIL_INVALID")
     if not email_allowed(config, nxt):
         allowed = ", ".join(config.allowed_email_domains)

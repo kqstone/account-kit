@@ -39,6 +39,7 @@ export type TwoFactorLabels = {
   emailCode: string
   emailCodePlaceholder: string
   sendEmailCode: string
+  sending: string
   resendIn: string
   emailSentTo: string
   trustedDevices: string
@@ -103,6 +104,7 @@ export type ProfileLabels = {
   sendCode: string
   sending: string
   resendIn: string
+  codeSent: string
   codeSentTo: string
   passwordEmailCodeHint: string
   changeEmail: string
@@ -139,6 +141,10 @@ export type FormLabels = {
   code: string
   sendCode: string
   sending: string
+  resendIn: string
+  codeSent: string
+  codeSentTo: string
+  emailTakenHint: string
   role: string
   roleDefault: string
   newPassword: string
@@ -268,6 +274,7 @@ const twoFactorZh: TwoFactorLabels = {
   emailCode: "邮箱验证码",
   emailCodePlaceholder: "6 位邮箱验证码",
   sendEmailCode: "发送验证码",
+  sending: "发送中…",
   resendIn: "{s} 秒后重发",
   emailSentTo: "验证码已发送至 {email}",
   trustedDevices: "受信设备",
@@ -356,6 +363,7 @@ const twoFactorEn: TwoFactorLabels = {
   emailCode: "Email code",
   emailCodePlaceholder: "6-digit email code",
   sendEmailCode: "Send code",
+  sending: "Sending…",
   resendIn: "Resend in {s}s",
   emailSentTo: "Code sent to {email}",
   trustedDevices: "Trusted devices",
@@ -435,6 +443,7 @@ const profileZh: ProfileLabels = {
   sendCode: "发送验证码",
   sending: "发送中…",
   resendIn: "{s} 秒后重发",
+  codeSent: "验证码已发送",
   codeSentTo: "验证码已发送至 {email}",
   passwordEmailCodeHint: "修改密码需要邮箱验证码，请先发送验证码到当前邮箱。",
   changeEmail: "修改邮箱",
@@ -486,6 +495,7 @@ const profileEn: ProfileLabels = {
   sendCode: "Send code",
   sending: "Sending…",
   resendIn: "Resend in {s}s",
+  codeSent: "Verification code sent",
   codeSentTo: "Code sent to {email}",
   passwordEmailCodeHint: "Changing your password needs an email code. Send one to your current email first.",
   changeEmail: "Change email",
@@ -522,6 +532,10 @@ const formZh: FormLabels = {
   code: "验证码",
   sendCode: "发送验证码",
   sending: "发送中…",
+  resendIn: "{s} 秒后重发",
+  codeSent: "验证码已发送",
+  codeSentTo: "验证码已发送至 {email}",
+  emailTakenHint: "请直接登录或找回密码",
   role: "角色",
   roleDefault: "默认",
   newPassword: "新密码",
@@ -558,6 +572,10 @@ const formEn: FormLabels = {
   code: "Code",
   sendCode: "Send code",
   sending: "Sending…",
+  resendIn: "Resend in {s}s",
+  codeSent: "Verification code sent",
+  codeSentTo: "Code sent to {email}",
+  emailTakenHint: "Sign in or reset your password",
   role: "Role",
   roleDefault: "Default",
   newPassword: "New password",

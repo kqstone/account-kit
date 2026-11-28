@@ -18,16 +18,18 @@ from account_kit.config import get_config
 from account_kit.deps import get_current_user, get_current_user_allow_query_token, get_db, user_from_access_token
 from account_kit.emailer import send_code_email
 from account_kit.i18n import account_error, error_code_of, t
-from account_kit.models import RefreshToken, VerificationCode
+from account_kit.models import RefreshToken
 from account_kit.otp import (
     OTP_PURPOSES,
     OTP_TTL,
     assert_resend_allowed,
     check_code,
+    cooldown_seconds,
     create_code,
     generate_otp,
     guard_send,
     normalize_email,
+    require_email,
     reset_attempts,
     run_before_action,
 )
@@ -73,7 +75,6 @@ from account_kit.state import enforce_limit
 
 router = APIRouter(tags=["auth"])
 _bearer = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
-CHANGE_EMAIL_COOLDOWN = timedelta(seconds=60)
 
 
 async def _deliver(config, background_tasks: BackgroundTasks, email: str, purpose: str, code: str, language: str) -> None:
@@ -85,7 +86,7 @@ async def _deliver(config, background_tasks: BackgroundTasks, email: str, purpos
         background_tasks.add_task(send_code_email, config, email, purpose, code, language)
 
 
-@router.post("/send-code", response_model=StatusResponse)
+@router.post("/send-code", response_model=StatusResponse, response_model_exclude_none=True)
 async def send_code(
     req: SendCodeRequest,
     request: Request,
@@ -96,7 +97,7 @@ async def send_code(
     config = get_config()
     if req.purpose not in OTP_PURPOSES:
         raise account_error(400, "INVALID_PURPOSE")
-    email = normalize_email(req.email)
+    email = require_email(req.email)
     if req.purpose == "change_password":
         if not token:
             raise account_error(401, "AUTH_INVALID")
@@ -108,24 +109,29 @@ async def send_code(
         raise account_error(400, "EMAIL_DOMAIN_NOT_ALLOWED", params={"allowed": allowed})
 
     await guard_send(db, config, request, email, req.purpose)
-    await assert_resend_allowed(db, email, req.purpose)
     existing = await get_user_by_email(db, email)
-    should_send = False
-    if req.purpose == "register":
-        should_send = existing is None
-    elif req.purpose == "reset_password":
-        should_send = existing is not None and not existing.is_admin
-    elif req.purpose == "change_password":
-        should_send = True
-    if should_send:
-        code = generate_otp()
-        await create_code(db, config.code_secret(), email, req.purpose, code)
-        await reset_attempts(db, config, email, req.purpose)
-        await _deliver(config, background_tasks, email, req.purpose, code, req.language)
-    return StatusResponse(status="success", detail=t("CODE_SENT"))
+    if req.purpose == "register" and existing is not None:
+        raise account_error(400, "EMAIL_TAKEN")
+    if req.purpose == "reset_password":
+        if existing is None:
+            raise account_error(404, "EMAIL_NOT_REGISTERED")
+        if existing.is_admin:
+            raise account_error(400, "PASSWORD_RESET_NOT_ALLOWED")
+    resend_window = timedelta(seconds=cooldown_seconds(config.otp_resend_window_seconds))
+    await assert_resend_allowed(db, email, req.purpose, resend_window)
+    code = generate_otp()
+    await create_code(db, config.code_secret(), email, req.purpose, code)
+    await reset_attempts(db, config, email, req.purpose)
+    await _deliver(config, background_tasks, email, req.purpose, code, req.language)
+    return StatusResponse(
+        status="success",
+        detail=t("CODE_SENT"),
+        cooldown=cooldown_seconds(config.otp_resend_window_seconds),
+        expires_in=int(OTP_TTL.total_seconds()),
+    )
 
 
-@router.post("/verify-code", response_model=StatusResponse)
+@router.post("/verify-code", response_model=StatusResponse, response_model_exclude_none=True)
 async def verify_code(req: VerifyCodeRequest, request: Request, db: AsyncSession = Depends(get_db)):
     config = get_config()
     await run_before_action(config, request, "verify_code", {"email": normalize_email(req.email), "purpose": req.purpose})
@@ -236,7 +242,7 @@ async def login(
     return TokenResponse(**body)
 
 
-@router.post("/reset-password", response_model=StatusResponse)
+@router.post("/reset-password", response_model=StatusResponse, response_model_exclude_none=True)
 async def reset(payload: ResetPasswordRequest, request: Request, db: AsyncSession = Depends(get_db)):
     config = get_config()
     ip = request_ip(config, request)
@@ -251,7 +257,7 @@ async def reset(payload: ResetPasswordRequest, request: Request, db: AsyncSessio
     return StatusResponse(status="success", detail=t("PASSWORD_RESET_OK"))
 
 
-@router.post("/change-password", response_model=StatusResponse)
+@router.post("/change-password", response_model=StatusResponse, response_model_exclude_none=True)
 async def change_password_endpoint(
     payload: ChangePasswordRequest,
     request: Request,
@@ -466,22 +472,6 @@ async def patch_me(
     return body
 
 
-async def _cooldown(db: AsyncSession, email: str, purpose: str, window: timedelta) -> None:
-    from sqlalchemy import select
-
-    result = await db.execute(
-        select(VerificationCode.created_at)
-        .where(VerificationCode.email == normalize_email(email), VerificationCode.purpose == purpose)
-        .order_by(VerificationCode.created_at.desc())
-        .limit(1)
-    )
-    last = result.scalar()
-    if last is not None:
-        last = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) - last < window:
-            raise account_error(429, "EMAIL_CODE_TOO_FREQUENT", as_dict=True)
-
-
 @router.post("/me/email/send-code")
 async def send_change_email_code(
     body: ChangeEmailCodeRequest,
@@ -501,7 +491,8 @@ async def send_change_email_code(
         raise account_error(400, "PASSWORD_INCORRECT")
     await run_before_action(config, request, "change_email", {"user": current_user, "email": nxt})
     await guard_send(db, config, request, nxt, PURPOSE_CHANGE_EMAIL)
-    await _cooldown(db, nxt, PURPOSE_CHANGE_EMAIL, CHANGE_EMAIL_COOLDOWN)
+    cooldown = cooldown_seconds(config.change_email_cooldown_seconds)
+    await assert_resend_allowed(db, nxt, PURPOSE_CHANGE_EMAIL, timedelta(seconds=cooldown))
     code = generate_otp()
     await create_code(db, config.code_secret(), nxt, PURPOSE_CHANGE_EMAIL, code, bind=current_user.id)
     await reset_attempts(db, config, nxt, PURPOSE_CHANGE_EMAIL)
@@ -511,7 +502,7 @@ async def send_change_email_code(
         "detail": t("CODE_SENT"),
         "email": mask_email(nxt),
         "expires_in": int(OTP_TTL.total_seconds()),
-        "cooldown": int(CHANGE_EMAIL_COOLDOWN.total_seconds()),
+        "cooldown": cooldown,
     }
 
 

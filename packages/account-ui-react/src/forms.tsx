@@ -4,6 +4,7 @@ import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, type FormLabels } from "./labels"
 import { getMfaChallenge, type MfaChallenge } from "./mfa"
+import { useSendCode } from "./sendCode"
 import { formatError, interpolate, type DeepPartial } from "./utils"
 
 export type LoginSuccessExtra = { username: string; password: string; tokens: TokenPair }
@@ -183,8 +184,8 @@ export function RegisterForm({
   const [roles, setRoles] = useState<Array<{ code: string; name: string }>>([])
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const [sending, setSending] = useState(false)
   const [pending, setPending] = useState(false)
+  const send = useSendCode({ requireEmail: true })
 
   useEffect(() => {
     let alive = true
@@ -203,14 +204,12 @@ export function RegisterForm({
 
   async function sendCode() {
     setError("")
-    setSending(true)
-    try {
-      await client.sendCode(email.trim(), "register", locale)
-    } catch (err) {
-      setError(formatError(err, L, locale))
-    } finally {
-      setSending(false)
-    }
+    await send.run(() => client.sendCode(email.trim(), "register", locale), {
+      email,
+      labels: L,
+      locale,
+      extraHints: { EMAIL_TAKEN: L.emailTakenHint },
+    })
   }
 
   async function submit(event: FormEvent) {
@@ -279,8 +278,8 @@ export function RegisterForm({
         inputMode="numeric"
         autoComplete="one-time-code"
         onChange={setCode}
-        buttonText={sending ? L.sending : L.sendCode}
-        buttonDisabled={sending}
+        buttonText={send.buttonText(L, L.sendCode, email)}
+        buttonDisabled={send.buttonDisabled(email)}
         onButtonClick={() => void sendCode()}
       />
       {roles.length ? (
@@ -297,7 +296,8 @@ export function RegisterForm({
         </label>
       ) : null}
       {pending ? <p className="ak-success">{L.registerPending}</p> : null}
-      {error ? <p className="ak-error">{error}</p> : null}
+      {send.info ? <p className="ak-success">{send.info}</p> : null}
+      {error || send.error ? <p className="ak-error">{error || send.error}</p> : null}
       <button type="submit" disabled={busy}>
         {busy ? L.submitting : L.register}
       </button>
@@ -325,18 +325,15 @@ export function ResetPasswordForm({
   const [password, setPassword] = useState("")
   const [error, setError] = useState("")
   const [busy, setBusy] = useState(false)
-  const [sending, setSending] = useState(false)
+  const send = useSendCode({ requireEmail: true })
 
   async function sendCode() {
     setError("")
-    setSending(true)
-    try {
-      await client.sendCode(email.trim(), "reset_password", locale)
-    } catch (err) {
-      setError(formatError(err, L, locale))
-    } finally {
-      setSending(false)
-    }
+    await send.run(() => client.sendCode(email.trim(), "reset_password", locale), {
+      email,
+      labels: L,
+      locale,
+    })
   }
 
   async function submit(event: FormEvent) {
@@ -366,15 +363,16 @@ export function ResetPasswordForm({
         inputMode="numeric"
         autoComplete="one-time-code"
         onChange={setCode}
-        buttonText={sending ? L.sending : L.sendCode}
-        buttonDisabled={sending}
+        buttonText={send.buttonText(L, L.sendCode, email)}
+        buttonDisabled={send.buttonDisabled(email)}
         onButtonClick={() => void sendCode()}
       />
       <label>
         {L.newPassword}
         <input type="password" value={password} autoComplete="new-password" onChange={(event) => setPassword(event.target.value)} />
       </label>
-      {error ? <p className="ak-error">{error}</p> : null}
+      {send.info ? <p className="ak-success">{send.info}</p> : null}
+      {error || send.error ? <p className="ak-error">{error || send.error}</p> : null}
       <button type="submit" disabled={busy}>
         {busy ? L.submitting : L.resetPassword}
       </button>

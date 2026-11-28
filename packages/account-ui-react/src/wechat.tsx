@@ -11,6 +11,7 @@ import {
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, resolveWechatLabels, type FormLabels, type WechatLabels } from "./labels"
 import { CodeInputRow } from "./authShell"
+import { useSendCode } from "./sendCode"
 import { formatError, interpolate, type DeepPartial } from "./utils"
 
 function imageSrc(data: WechatStartResult) {
@@ -59,7 +60,7 @@ export function WechatQrLogin({
   const [password, setPassword] = useState("")
   const [email, setEmail] = useState("")
   const [code, setCode] = useState("")
-  const [sending, setSending] = useState(false)
+  const send = useSendCode({ requireEmail: true })
   const [busy, setBusy] = useState(false)
   const ticketRef = useRef("")
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -144,15 +145,13 @@ export function WechatQrLogin({
   }, [])
 
   async function sendRegisterCode() {
-    setSending(true)
     setError("")
-    try {
-      await client.sendCode(email.trim(), "register", locale)
-    } catch (err) {
-      setError(formatError(err, F, locale))
-    } finally {
-      setSending(false)
-    }
+    await send.run(() => client.sendCode(email.trim(), "register", locale), {
+      email,
+      labels: F,
+      locale,
+      extraHints: { EMAIL_TAKEN: F.emailTakenHint },
+    })
   }
 
   async function submitRegister(event: FormEvent) {
@@ -240,11 +239,12 @@ export function WechatQrLogin({
                 inputMode="numeric"
                 autoComplete="one-time-code"
                 onChange={setCode}
-                buttonText={sending ? F.sending : F.sendCode}
-                buttonDisabled={sending}
+                buttonText={send.buttonText(F, F.sendCode, email)}
+                buttonDisabled={send.buttonDisabled(email)}
                 onButtonClick={() => void sendRegisterCode()}
               />
-              {error ? <p className="ak-error">{error}</p> : null}
+              {send.info ? <p className="ak-success">{send.info}</p> : null}
+              {error || send.error ? <p className="ak-error">{error || send.error}</p> : null}
               <button type="submit" disabled={busy}>
                 {busy ? F.submitting : F.register}
               </button>

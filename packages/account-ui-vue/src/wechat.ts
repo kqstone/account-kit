@@ -11,6 +11,7 @@ import { BindExistingAccountForm } from "./bindExisting"
 import { CodeInputRow } from "./authShell"
 import { useAccountI18n, useKitLocale } from "./i18n"
 import { resolveFormLabels, resolveWechatLabels, type FormLabels, type WechatLabels } from "./labels"
+import { useSendCode } from "./sendCode"
 import { formatError, interpolate, textOf, type DeepPartial } from "./utils"
 
 function field(label: string, input: ReturnType<typeof h>) {
@@ -50,7 +51,7 @@ export const WechatQrLogin = defineComponent({
     const password = ref("")
     const email = ref("")
     const code = ref("")
-    const sending = ref(false)
+    const send = useSendCode({ requireEmail: true })
     const busy = ref(false)
     const ticket = ref("")
     let pollTimer: ReturnType<typeof setInterval> | null = null
@@ -131,15 +132,13 @@ export const WechatQrLogin = defineComponent({
     }
 
     async function sendRegisterCode() {
-      sending.value = true
       error.value = ""
-      try {
-        await props.client.sendCode(email.value.trim(), "register", locale.value)
-      } catch (err) {
-        error.value = formatError(err, F.value, locale.value)
-      } finally {
-        sending.value = false
-      }
+      await send.run(() => props.client.sendCode(email.value.trim(), "register", locale.value), {
+        email: email.value,
+        labels: F.value,
+        locale: locale.value,
+        extraHints: { EMAIL_TAKEN: F.value.emailTakenHint },
+      })
     }
 
     async function submitRegister() {
@@ -219,8 +218,9 @@ export const WechatQrLogin = defineComponent({
               field(forms.username, h("input", { value: username.value, autocomplete: "username", onInput: (event: Event) => { username.value = textOf(event) } })),
               field(forms.email, h("input", { type: "email", value: email.value, autocomplete: "email", onInput: (event: Event) => { email.value = textOf(event) } })),
               field(forms.password, h("input", { type: "password", value: password.value, autocomplete: "new-password", onInput: (event: Event) => { password.value = textOf(event) } })),
-              h(CodeInputRow, { label: forms.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: sending.value ? forms.sending : forms.sendCode, buttonDisabled: sending.value, "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendRegisterCode() }),
-              error.value ? h("p", { class: "ak-error" }, error.value) : null,
+              h(CodeInputRow, { label: forms.code, modelValue: code.value, maxlength: 6, inputmode: "numeric", autocomplete: "one-time-code", buttonText: send.buttonText(forms, forms.sendCode, email.value), buttonDisabled: send.buttonDisabled(email.value), "onUpdate:modelValue": (v: string) => { code.value = v }, onButtonClick: () => void sendRegisterCode() }),
+              send.info.value ? h("p", { class: "ak-success" }, send.info.value) : null,
+              error.value || send.error.value ? h("p", { class: "ak-error" }, error.value || send.error.value) : null,
               h("button", { type: "submit", disabled: busy.value }, busy.value ? forms.submitting : forms.register),
             ]),
           )

@@ -85,7 +85,7 @@ FastAPI `detail` 可能是字符串或对象。对象时看 `detail.code`（界�
 | 401 | `SESSION_REPLACED` | 单设备会话被顶 |
 | 400 | `EMAIL_VERIFICATION_REQUIRED` | `PATCH /me` 改邮箱未带 `email_code` |
 | 400 | `EMAIL_CHANGE_VIA_ENDPOINT` | `profile_email_change=reject` |
-| 429 | `EMAIL_CODE_TOO_FREQUENT` | 改邮发码过快（60s） |
+| 429 | `EMAIL_CODE_TOO_FREQUENT` | 同用途重发过快（默认 120s，`retry_after`） |
 | 429 | `RATE_LIMITED` | 发码/登录等限流；`retry_after` 秒，头 `Retry-After` |
 | 400 | `ADMIN_SELF_DELETE_FORBIDDEN` | 管理员自助注销（kit 实现是 **400**） |
 | 400 | `TWO_FACTOR_NOT_ENABLED` | 未开 2FA 却要邮箱码注销/关 2FA |
@@ -205,7 +205,7 @@ Query 可选：`email`、`purpose`。
 | `disable_2fa` | `POST /api/auth/2fa/disable/email-code` |
 | `delete_account` | `POST /api/auth/me/delete/email-code` |
 
-`send-code` 只接受前三个 purpose。TTL 5 分钟。同一邮箱同一 purpose 5 分钟内重发 429（字符串「验证码发送频繁，请稍后再试」）。改邮还有 60 秒冷却（对象 `EMAIL_CODE_TOO_FREQUENT`）。
+`send-code` 只接受前三个 purpose。TTL 5 分钟。同一邮箱同一 purpose 默认 120 秒内重发 429 `EMAIL_CODE_TOO_FREQUENT`（对象，含 `retry_after` 与 `Retry-After` 头）。改邮 / 2FA / 注销冷却同样默认 120 秒。
 
 ---
 
@@ -214,8 +214,8 @@ Query 可选：`email`、`purpose`。
 ### 发码 / 校验码 / 注册
 
 `POST /send-code` `{ "email", "purpose": "register"|"reset_password"|"change_password", "language": "zh" }`  
-→ `{ "status": "success", "detail": "验证码已发送" }`  
-（邮箱已存在时注册 purpose 仍 200，但不发信，防探测。）
+→ `{ "status": "success", "detail": "验证码已发送", "cooldown": 120, "expires_in": 300 }`  
+注册已注册邮箱 `400 EMAIL_TAKEN`；重置未注册 `404 EMAIL_NOT_REGISTERED`；管理员公开重置 `400 PASSWORD_RESET_NOT_ALLOWED`（中性文案）。空/非法邮箱 `400 EMAIL_INVALID`。
 
 `POST /verify-code` `{ "email", "purpose", "code" }`（6 位）  
 → `{ "status": "success", "detail": "验证码有效" }`
@@ -298,7 +298,7 @@ Query 可选：`email`、`purpose`。
 成功在登录 token 上额外可能有：`two_factor_method`、`trusted_device_token`、`trusted_device_expires_at`、`recovery_codes_remaining`。
 
 `POST /login/2fa/email/send` JSON `{ "challenge_token", "language": "zh" }`  
-→ `{ "status": "success", "email": "al***@example.com", "expires_in": 300, "cooldown": 60 }`  
+→ `{ "status": "success", "email": "al***@example.com", "expires_in": 300, "cooldown": 120 }`  
 需要 `two_factor_email`。
 
 ### 刷新 / 登出
@@ -322,7 +322,7 @@ Query 可选：`email`、`purpose`。
 → `{ "status": "success", "detail": "密码修改成功" }`。demo 默认不要求 `code`。
 
 `POST /me/email/send-code` `{ "new_email", "password"?, "language": "zh" }`  
-→ `{ "status": "success", "detail": "验证码已发送", "email": "ne***@...", "expires_in": 300, "cooldown": 60 }`
+→ `{ "status": "success", "detail": "验证码已发送", "email": "ne***@...", "expires_in": 300, "cooldown": 120 }`
 
 `POST /me/email` `{ "new_email", "code", "password"? }` → 用户对象。demo 默认要当前密码。
 

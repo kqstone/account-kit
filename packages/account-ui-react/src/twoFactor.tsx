@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react"
+import { useEffect, useMemo, useState, type FormEvent } from "react"
 import { ensureAccountStyle, type AccountClient, type LoginSecondFactorResult, type TokenPair, type TrustedDevice, type TwoFactorStatus } from "./client"
 
 type TokenPairLike = TokenPair & Partial<LoginSecondFactorResult>
@@ -21,6 +21,7 @@ import {
 } from "./mfa"
 import { renderQrDataUrl, type RenderQr } from "./qr"
 import { clearTrustedDeviceTokensForUser, saveTrustedDeviceToken } from "./trustedDevice"
+import { useSendCode } from "./sendCode"
 import { formatDateTime, interpolate, type DeepPartial } from "./utils"
 
 function btnClass(kind: "primary" | "outline" | "danger" | "link", extra = "") {
@@ -76,23 +77,10 @@ export function TwoFactorSettings({
   const [qrDataUrl, setQrDataUrl] = useState("")
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([])
   const [savedAck, setSavedAck] = useState(false)
-  const [emailMasked, setEmailMasked] = useState("")
-  const [cooldown, setCooldown] = useState(0)
-  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const send = useSendCode()
 
   function errText(e: unknown) {
     return twoFactorErrorMessage(e, L)
-  }
-
-  function startCooldown(sec = 60) {
-    setCooldown(sec)
-    if (cooldownRef.current) clearInterval(cooldownRef.current)
-    cooldownRef.current = setInterval(() => {
-      setCooldown((value) => {
-        if (value <= 1 && cooldownRef.current) clearInterval(cooldownRef.current)
-        return value <= 1 ? 0 : value - 1
-      })
-    }, 1000)
   }
 
   async function load() {
@@ -120,7 +108,6 @@ export function TwoFactorSettings({
     setSetupSecret("")
     setQrDataUrl("")
     setEmailCode("")
-    setEmailMasked("")
     setSavedAck(false)
   }
 
@@ -142,24 +129,20 @@ export function TwoFactorSettings({
     }
   }
 
-  async function sendEmail() {
-    await run(async () => {
-      try {
-        const res = await client.sendDisableEmailCode(token, locale)
-        setEmailMasked(res.email || "")
-        startCooldown(Number(res.cooldown) || 60)
-      } catch (e) {
-        if (errorCodeOf(e) === "EMAIL_CODE_TOO_FREQUENT") startCooldown()
-        throw e
-      }
+  async function sendDisableEmail() {
+    setError("")
+    await send.run(() => client.sendDisableEmailCode(token, locale), {
+      labels: L,
+      locale,
+      successText: (res) => {
+        const email = (res && "email" in res && res.email) || ""
+        return email ? interpolate(L.emailSentTo, { email }) : L.emailSentTo
+      },
     })
   }
 
   useEffect(() => {
     void load()
-    return () => {
-      if (cooldownRef.current) clearInterval(cooldownRef.current)
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [client, token])
 
@@ -187,7 +170,7 @@ export function TwoFactorSettings({
             onClick={() => {
               setFactor(FACTOR_EMAIL)
               setError("")
-              if (cooldown <= 0) void sendEmail()
+              if (send.left <= 0) void sendDisableEmail()
             }}
           >
             {L.skipDisable}
@@ -390,15 +373,15 @@ export function TwoFactorSettings({
           ) : (
             <span className="ak-row">
               {totpInput(emailCode, setEmailCode, L.emailCodePlaceholder)}
-              <button type="button" className={btnClass("outline")} disabled={busy || cooldown > 0} onClick={() => void sendEmail()}>
-                {cooldown > 0 ? interpolate(L.resendIn, { s: cooldown }) : L.sendEmailCode}
+              <button type="button" className={btnClass("outline")} disabled={busy || send.buttonDisabled()} onClick={() => void sendDisableEmail()}>
+                {send.buttonText(L, L.sendEmailCode)}
               </button>
             </span>
           )}
         </label>
-        {factor === FACTOR_EMAIL && emailMasked ? <p className="ak-muted">{interpolate(L.emailSentTo, { email: emailMasked })}</p> : null}
+        {factor === FACTOR_EMAIL && send.info ? <p className="ak-muted">{send.info}</p> : null}
         {factorLinks(mode === "disable" && !!status?.email_available)}
-        {error ? <p className="ak-error">{error}</p> : null}
+        {error || send.error ? <p className="ak-error">{error || send.error}</p> : null}
         <div className="ak-actions">
           <button type="button" className={btnClass("outline")} disabled={busy} onClick={reset}>
             {L.cancel}
@@ -564,27 +547,7 @@ export function TwoFactorLoginDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const [conflictDevice, setConflictDevice] = useState("")
-  const [emailMasked, setEmailMasked] = useState("")
-  const [cooldown, setCooldown] = useState(0)
-  const cooldownRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  function startCooldown(sec = 60) {
-    setCooldown(sec)
-    if (cooldownRef.current) clearInterval(cooldownRef.current)
-    cooldownRef.current = setInterval(() => {
-      setCooldown((value) => {
-        if (value <= 1 && cooldownRef.current) clearInterval(cooldownRef.current)
-        return value <= 1 ? 0 : value - 1
-      })
-    }, 1000)
-  }
-
-  useEffect(
-    () => () => {
-      if (cooldownRef.current) clearInterval(cooldownRef.current)
-    },
-    [],
-  )
+  const send = useSendCode()
 
   const factorInputs = { code, recoveryCode, emailCode }
   const canSubmit = canSubmitFactor(factor, factorInputs)
@@ -636,23 +599,22 @@ export function TwoFactorLoginDialog({
   }
 
   async function sendEmail() {
-    if (busy || !info) return
-    setBusy(true)
+    if (!info) return
     setError("")
-    try {
-      const res = await (sendEmailCode
-        ? sendEmailCode(info.challengeToken, locale)
-        : client.sendLoginEmailCode(info.challengeToken, locale))
-      setEmailMasked(res.email || "")
-      startCooldown(Number(res.cooldown) || 60)
-    } catch (e) {
-      const errCode = errorCodeOf(e)
-      if (errCode === "MFA_CHALLENGE_INVALID") onExpired?.(twoFactorErrorMessage(e, L))
-      else setError(twoFactorErrorMessage(e, L))
-      if (errCode === "EMAIL_CODE_TOO_FREQUENT") startCooldown()
-    } finally {
-      setBusy(false)
-    }
+    await send.run(
+      () => (sendEmailCode ? sendEmailCode(info.challengeToken, locale) : client.sendLoginEmailCode(info.challengeToken, locale)),
+      {
+        labels: L,
+        locale,
+        successText: (res) => {
+          const email = (res && "email" in res && res.email) || ""
+          return email ? interpolate(L.emailSentTo, { email }) : L.emailSentTo
+        },
+        onError: (e) => {
+          if (errorCodeOf(e) === "MFA_CHALLENGE_INVALID") onExpired?.(twoFactorErrorMessage(e, L))
+        },
+      },
+    )
   }
 
   return (
@@ -723,18 +685,18 @@ export function TwoFactorLoginDialog({
                     placeholder={L.emailCodePlaceholder}
                     onChange={(event) => setEmailCode(normalizeTotpInput(event.target.value))}
                   />
-                  <button type="button" className={btnClass("outline")} disabled={busy || cooldown > 0} onClick={() => void sendEmail()}>
-                    {cooldown > 0 ? interpolate(L.resendIn, { s: cooldown }) : L.sendEmailCode}
+                  <button type="button" className={btnClass("outline")} disabled={busy || send.buttonDisabled()} onClick={() => void sendEmail()}>
+                    {send.buttonText(L, L.sendEmailCode)}
                   </button>
                 </span>
-                {emailMasked ? <p className="ak-muted">{interpolate(L.emailSentTo, { email: emailMasked })}</p> : null}
+                {send.info ? <p className="ak-muted">{send.info}</p> : null}
               </>
             )}
             <label className="ak-check">
               <input type="checkbox" checked={trustDevice} onChange={(event) => setTrustDevice(event.target.checked)} />
               <span>{interpolate(L.login.trustDevice, { days })}</span>
             </label>
-            {error ? <div className="ak-error">{error}</div> : null}
+            {error || send.error ? <div className="ak-error">{error || send.error}</div> : null}
             <div className="ak-actions" style={{ justifyContent: "flex-end" }}>
               <button type="button" className={btnClass("outline")} disabled={busy} onClick={() => { if (!busy) onCancel?.() }}>
                 {L.cancel}
@@ -762,7 +724,7 @@ export function TwoFactorLoginDialog({
                 onClick={() => {
                   setFactor(FACTOR_EMAIL)
                   setError("")
-                  if (cooldown <= 0) void sendEmail()
+                  if (send.left <= 0) void sendEmail()
                 }}
               >
                 {L.login.skip}
