@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import math
 import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
@@ -22,11 +23,56 @@ OTP_PURPOSES = {
     "delete_account",
 }
 OTP_TTL = timedelta(minutes=5)
-OTP_RESEND_WINDOW = timedelta(minutes=5)
+OTP_RESEND_WINDOW = timedelta(seconds=120)
 
 
 def normalize_email(email: str) -> str:
     return (email or "").strip().lower()
+
+
+def email_looks_valid(email: str) -> bool:
+    """Simple format check: non-empty local, ``@``, domain contains a dot."""
+    text = (email or "").strip()
+    if not text or " " in text or "@" not in text:
+        return False
+    local, _, domain = text.partition("@")
+    if not local or not domain or "." not in domain or "@" in domain:
+        return False
+    return True
+
+
+def require_email(email: Optional[str]) -> str:
+    if not email_looks_valid(email or ""):
+        raise account_error(400, "EMAIL_INVALID")
+    return normalize_email(email or "")
+
+
+def cooldown_seconds(value, default: int = 120) -> int:
+    try:
+        if value is None:
+            return default
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
+def retry_after_seconds(created: Optional[datetime], window: timedelta) -> int:
+    created = _aware(created)
+    if created is None or window.total_seconds() <= 0:
+        return 1
+    remaining = (created + window) - datetime.now(timezone.utc)
+    return max(1, int(math.ceil(remaining.total_seconds())))
+
+
+def email_code_too_frequent(retry_after: int):
+    ttl = max(1, int(retry_after or 1))
+    return account_error(
+        429,
+        "EMAIL_CODE_TOO_FREQUENT",
+        extra={"retry_after": ttl},
+        headers={"Retry-After": str(ttl)},
+        as_dict=True,
+    )
 
 
 def generate_otp() -> str:
@@ -74,7 +120,15 @@ async def consume_code(db: AsyncSession, secret: str, email: str, purpose: str, 
     return row
 
 
-async def assert_resend_allowed(db: AsyncSession, email: str, purpose: str) -> None:
+async def assert_resend_allowed(
+    db: AsyncSession, email: str, purpose: str, window: Optional[timedelta] = None
+) -> None:
+    if window is None:
+        from account_kit.config import get_config
+
+        window = timedelta(seconds=cooldown_seconds(get_config().otp_resend_window_seconds))
+    if window.total_seconds() <= 0:
+        return
     result = await db.execute(
         select(VerificationCode)
         .where(
@@ -88,13 +142,14 @@ async def assert_resend_allowed(db: AsyncSession, email: str, purpose: str) -> N
     if not last:
         return
     created = _aware(last.created_at)
-    if created and datetime.now(timezone.utc) - created < OTP_RESEND_WINDOW:
-        raise account_error(429, "EMAIL_CODE_TOO_FREQUENT")
+    if created and datetime.now(timezone.utc) - created < window:
+        raise email_code_too_frequent(retry_after_seconds(created, window))
 
 
 async def create_code(
     db: AsyncSession, secret: str, email: str, purpose: str, code: str, *, bind=None
 ) -> VerificationCode:
+    await invalidate_codes(db, email, purpose)
     now = datetime.now(timezone.utc)
     row = VerificationCode(
         email=normalize_email(email),

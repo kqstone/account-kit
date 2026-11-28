@@ -99,6 +99,7 @@ async def test_self_delete_email_factor_and_admin_forbidden(api):
     await client.post("/api/auth/2fa/enable", json={"code": totp.now()}, headers=bearer(body))
     sent = await client.post("/api/auth/me/delete/email-code", json={"language": "en"}, headers=bearer(body))
     assert sent.status_code == 200, sent.text
+    assert sent.json()["cooldown"] == 120 and sent.json()["expires_in"] == 300
     mail = api["sent"][-1]
     assert mail["purpose"] == "delete_account"
     ok = await client.post("/api/auth/me/delete", json={"password": "secret1", "email_code": mail["code"]}, headers=bearer(body))

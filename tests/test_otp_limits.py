@@ -71,11 +71,12 @@ async def test_reset_password_wrong_attempts(api):
 async def test_send_code_rate_limit_per_email(api):
     config = api["config"]
     config.send_code_rate_limit_email = 2
-    # The 5-minute per-purpose resend window would hide the limit; use distinct purposes.
     first = await _send(api, "rl@example.com", "register")
     assert first.status_code == 200
+    # Unregistered reset is 404 but still counts toward guard_send.
     second = await _send(api, "rl@example.com", "reset_password")
-    assert second.status_code == 200
+    assert second.status_code == 404
+    assert second.json()["code"] == "EMAIL_NOT_REGISTERED"
     third = await _send(api, "rl@example.com", "reset_password")
     assert third.status_code == 429
     detail = third.json()["detail"]
@@ -100,8 +101,10 @@ async def test_limits_can_be_disabled(api):
     config = api["config"]
     config.send_code_rate_limit_email = 0
     config.send_code_rate_limit_ip = 0
-    for purpose in ("register", "reset_password"):
-        assert (await _send(api, "free@example.com", purpose)).status_code == 200
+    assert (await _send(api, "free@example.com", "register")).status_code == 200
+    missing = await _send(api, "free@example.com", "reset_password")
+    assert missing.status_code == 404
+    assert missing.json()["code"] == "EMAIL_NOT_REGISTERED"
 
 
 async def test_before_send_code_and_before_action_hooks(api):

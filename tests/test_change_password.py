@@ -125,6 +125,7 @@ async def test_change_password_email_code_optional_flag(api):
         headers=headers,
     )
     assert sent.status_code == 200, sent.text
+    assert sent.json()["cooldown"] == 120 and sent.json()["expires_in"] == 300
     code = api["sent"][-1]["code"]
     ok = await client.post(
         "/api/auth/change-password",

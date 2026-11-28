@@ -146,7 +146,7 @@
 
 - **Content-Type**: `application/json`
 - **请求体**: `{"challenge_token": "...", "language": "zh"}`
-- **说明**: 验证密码正确后，可向用户注册邮箱发送登录验证码，用户可作为 `email_code` 提交至 `/login/2fa` 跳过验证器完成登录。
+- **说明**: 验证密码正确后，可向用户注册邮箱发送登录验证码，用户可作为 `email_code` 提交至 `/login/2fa` 跳过验证器完成登录。成功响应含 `cooldown`（默认 120，`email_code_cooldown_seconds`）与 `expires_in`（300）。超频返回 `429 EMAIL_CODE_TOO_FREQUENT`（带 `retry_after` 与 `Retry-After` 头）。
 
 ---
 
@@ -229,11 +229,15 @@
     "language": "zh"
   }
   ```
+- **成功响应 (200 OK)**: `{"status": "success", "detail": "验证码已发送", "cooldown": 120, "expires_in": 300}`。`cooldown` 来自 `otp_resend_window_seconds`（默认 120），`expires_in` 为验证码 TTL（5 分钟 = 300 秒）。
 - **说明**:
-  - `register`: 邮箱未被注册方可发送；若配置了域名白名单，校验后缀。
-  - `reset_password`: 仅当邮箱已注册且非管理员账号时发送。
+  - 邮箱为空或格式非法（需含 `@`，域名含点）返回 `400 EMAIL_INVALID`，不走 FastAPI 422。
+  - `register`: 邮箱未被注册方可发送。已有账号返回 `400 EMAIL_TAKEN`（「该邮箱已注册」），不发信。若配置了域名白名单，后缀校验在 `guard_send` 之前，不允许时返回 `400 EMAIL_DOMAIN_NOT_ALLOWED`。
+  - `reset_password`: 邮箱已注册且非管理员账号才发送。未注册返回 `404 EMAIL_NOT_REGISTERED`。管理员账号返回 `400 PASSWORD_RESET_NOT_ALLOWED`（中性文案，不含「管理员」），不发码、不谎称未注册。
   - `change_password`: 需要登录态，且发送邮箱必须为当前账号邮箱。
-  - 发送受频控与输错防爆破锁定策略保护。
+  - 注册已注册 / 重置未注册 / 管理员重置仍先走 `guard_send`（IP / 邮箱次数限流）。同一邮箱同一用途最短重发间隔默认 120 秒，超频返回 `429 EMAIL_CODE_TOO_FREQUENT`（带 `retry_after` 与 `Retry-After` 头）。
+  - 成功发出新码时作废同一邮箱同一用途尚未使用的旧码。
+  - 发送另受 IP / 邮箱次数频控与输错防爆破锁定策略保护（次数上限不变）。
 
 ---
 
@@ -304,7 +308,7 @@
 
 - **认证**: 需要登录 Bearer Token
 - **请求体**: `{"new_email": "new@example.com", "password": "当前密码", "language": "zh"}`
-- **说明**: 验证码发送至新邮箱，且与当前用户 ID 严格绑定。同一用户发送间隔有 60 秒冷却，超频返回 `429 EMAIL_CODE_TOO_FREQUENT`。
+- **说明**: 验证码发送至新邮箱，且与当前用户 ID 严格绑定。同一用户发送间隔默认 120 秒冷却（`change_email_cooldown_seconds`），超频返回 `429 EMAIL_CODE_TOO_FREQUENT`（带 `retry_after` 与 `Retry-After` 头）。成功响应含 `cooldown`（默认 120）与 `expires_in`（300）。新邮箱为空或格式非法返回 `400 EMAIL_INVALID`。
 
 ---
 
@@ -456,7 +460,8 @@ kit 抛出的 `AccountError` 在 `detail` 之外增加顶层 `code`（有插值�
 | `EMAIL_CHANGE_VIA_ENDPOINT` | 400 | dict | | 请通过 POST /me/email 修改邮箱 | Change email via POST /me/email |
 | `EMAIL_VERIFICATION_REQUIRED` | 400 | dict | | 修改邮箱需要新邮箱收到的验证码 | Changing email requires the code sent to the new address |
 | `EMAIL_CODE_REQUIRED` | 400 | dict | `email_code_required` | 请输入邮箱验证码 | Please enter the email verification code |
-| `EMAIL_CODE_TOO_FREQUENT` | 429 | dict | | 验证码发送频繁，请稍后再试 | Codes sent too often, please try again later |
+| `EMAIL_CODE_TOO_FREQUENT` | 429 | dict | `retry_after`；头 `Retry-After` | 验证码发送频繁，请稍后再试 | Codes sent too often, please try again later |
+| `PASSWORD_RESET_NOT_ALLOWED` | 400 | string | | 该账号不支持通过此方式重置密码 | This account does not support resetting the password this way |
 | `EMAIL_CODE_INVALID` | 400 | dict | | 邮箱验证码错误或已失效 | Email code is wrong or expired |
 | `EMAIL_CODE_LOCKED` | 400 | dict | | 验证码错误次数过多，请重新获取验证码 | Too many wrong codes, please request a new one |
 | `EMAIL_UNAVAILABLE` | 400 | dict | | 邮箱验证不可用 | Email verification is not available |

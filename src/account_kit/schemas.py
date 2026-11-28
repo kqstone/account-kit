@@ -19,9 +19,14 @@ def _birth(value):
 
 
 class SendCodeRequest(BaseModel):
-    email: EmailStr
+    email: str = ""
     purpose: Literal["register", "reset_password", "change_password"]
     language: Optional[str] = None
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _email(cls, value):
+        return "" if value is None else value
 
 
 class VerifyCodeRequest(BaseModel):
@@ -137,9 +142,14 @@ class LogoutRequest(BaseModel):
 
 
 class ChangeEmailCodeRequest(BaseModel):
-    new_email: EmailStr
+    new_email: str = ""
     password: Optional[str] = None
     language: Optional[str] = None
+
+    @field_validator("new_email", mode="before")
+    @classmethod
+    def _new_email(cls, value):
+        return "" if value is None else value
 
 
 class ChangeEmailRequest(BaseModel):
@@ -168,3 +178,5 @@ class ProfileResponse(BaseModel):
 class StatusResponse(BaseModel):
     status: str
     detail: str
+    cooldown: Optional[int] = None
+    expires_in: Optional[int] = None

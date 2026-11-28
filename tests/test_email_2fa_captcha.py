@@ -63,13 +63,15 @@ async def test_email_fallback_login(api):
 
     sent = await client.post("/api/auth/login/2fa/email/send", json={"challenge_token": token, "language": "zh"})
     assert sent.status_code == 200, sent.text
-    assert sent.json() == {"status": "success", "email": "mf***@example.com", "expires_in": 300, "cooldown": 60}
+    assert sent.json() == {"status": "success", "email": "mf***@example.com", "expires_in": 300, "cooldown": 120}
     mail = api["sent"][-1]
     assert mail["purpose"] == "login_2fa"
     assert mail["to"] == "mfa@example.com"
     again = await client.post("/api/auth/login/2fa/email/send", json={"challenge_token": token})
     assert again.status_code == 429
     assert again.json()["detail"]["code"] == "EMAIL_CODE_TOO_FREQUENT"
+    assert again.json()["detail"]["retry_after"] >= 1
+    assert again.headers.get("retry-after")
 
     missing = await client.post("/api/auth/login/2fa", data={"challenge_token": token})
     assert missing.status_code == 400
@@ -145,6 +147,7 @@ async def test_disable_with_email_code(api):
     assert status.json()["email_available"] is True
     sent = await client.post("/api/auth/2fa/disable/email-code", json={"language": "en"}, headers=headers)
     assert sent.status_code == 200, sent.text
+    assert sent.json()["cooldown"] == 120 and sent.json()["expires_in"] == 300
     mail = api["sent"][-1]
     assert mail["purpose"] == "disable_2fa"
     assert mail["language"] == "en"

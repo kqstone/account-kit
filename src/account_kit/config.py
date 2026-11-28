@@ -179,6 +179,11 @@ class AccountKitConfig:
     send_code_rate_limit_ip: int = 10
     send_code_rate_limit_email: int = 5
     send_code_rate_window_seconds: int = 3600
+    # Same-purpose resend interval in seconds (not the IP / email count limits above).
+    # 0 disables the interval. OTP_TTL stays 5 minutes.
+    otp_resend_window_seconds: int = 120
+    change_email_cooldown_seconds: int = 120
+    email_code_cooldown_seconds: int = 120
     # Optional per-IP limits on other unauthenticated endpoints (0 = off; hosts that
     # already throttle in before_login / before_register keep doing so).
     reset_password_rate_limit_ip: int = 10

@@ -13,14 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from account_kit.config import AccountKitConfig
 from account_kit.i18n import AccountError, account_error, error_code_of, resolve_email_language, t
-from account_kit.models import TwoFactorRecoveryCode, TrustedDevice, User, UserTwoFactor, VerificationCode
+from account_kit.models import TwoFactorRecoveryCode, TrustedDevice, User, UserTwoFactor
 from account_kit.two_factor.challenges import TTL_SECONDS, challenge_store, create_challenge, discard_user_challenges  # noqa: F401
 from account_kit.two_factor.totp import decrypt_secret, encrypt_secret, generate_secret, match_step, provisioning_uri
 
 RECOVERY_ALPHABET = "abcdefghjkmnpqrstuvwxyz23456789"
 PURPOSE_LOGIN_2FA = "login_2fa"
 PURPOSE_DISABLE_2FA = "disable_2fa"
-EMAIL_CODE_COOLDOWN = timedelta(seconds=60)
 
 
 def _err(status_code: int, code: str, message: str = "", **extra) -> AccountError:
@@ -176,24 +175,15 @@ async def send_email_code(
     language: Optional[str] = None,
     background_tasks=None,
 ) -> dict:
-    """Issue a 6-digit code (hashed at rest, 5 min TTL, 60 s cooldown) and email it."""
+    """Issue a 6-digit code (hashed at rest, 5 min TTL, configurable cooldown) and email it."""
     from account_kit.emailer import send_code_email
-    from account_kit.otp import OTP_TTL, create_code, generate_otp, normalize_email
+    from account_kit.otp import OTP_TTL, assert_resend_allowed, cooldown_seconds, create_code, generate_otp, normalize_email
 
     if not user.email:
         raise account_error(400, "EMAIL_UNAVAILABLE", as_dict=True, message_key="EMAIL_UNAVAILABLE_NO_EMAIL")
     email = normalize_email(user.email)
-    result = await db.execute(
-        select(VerificationCode)
-        .where(VerificationCode.email == email, VerificationCode.purpose == purpose)
-        .order_by(VerificationCode.created_at.desc())
-        .limit(1)
-    )
-    last = result.scalars().first()
-    if last is not None and last.created_at is not None:
-        created = last.created_at if last.created_at.tzinfo else last.created_at.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) - created < EMAIL_CODE_COOLDOWN:
-            raise _err(429, "EMAIL_CODE_TOO_FREQUENT")
+    cooldown = cooldown_seconds(config.email_code_cooldown_seconds)
+    await assert_resend_allowed(db, email, purpose, timedelta(seconds=cooldown))
     code = generate_otp()
     await create_code(db, config.code_secret(), email, purpose, code)
     from account_kit.otp import reset_attempts
@@ -208,7 +198,7 @@ async def send_email_code(
         "status": "success",
         "email": mask_email(email),
         "expires_in": int(OTP_TTL.total_seconds()),
-        "cooldown": int(EMAIL_CODE_COOLDOWN.total_seconds()),
+        "cooldown": cooldown,
     }
 
 

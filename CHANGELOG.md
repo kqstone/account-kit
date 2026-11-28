@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+发码反馈与同用途重发间隔（服务端）。版本号仍为 0.7.0，发版另行批准。
+
+- 同用途最短重发间隔默认 **120 秒**，可配置：`otp_resend_window_seconds` / `change_email_cooldown_seconds` / `email_code_cooldown_seconds`。IP / 邮箱次数限流与 `OTP_TTL`（5 分钟）不变。
+- `POST /send-code` 注册已有账号返回 `400 EMAIL_TAKEN`；重置未注册返回 `404 EMAIL_NOT_REGISTERED`；管理员公开重置返回 `400 PASSWORD_RESET_NOT_ALLOWED`（中性文案）。以上错误路径仍先走 `guard_send`。
+- 成功响应补 `cooldown` / `expires_in`（默认 120 / 300）。`EMAIL_CODE_TOO_FREQUENT` 带 `retry_after` 与 `Retry-After`。
+- 发出新码时作废同一邮箱同一用途未使用的旧码。空或格式非法的邮箱返回 `400 EMAIL_INVALID`。
+
 ## 0.7.0
 
 审批核心与 SSO bind-ticket 下沉到 kit。未知 SSO 身份不再静默建号；被拒账号错误码从 `ACCOUNT_PENDING` 拆出 `ACCOUNT_REJECTED`。
