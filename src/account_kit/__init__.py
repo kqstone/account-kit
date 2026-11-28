@@ -26,7 +26,7 @@ from account_kit.seed import seed_defaults
 from account_kit.service import create_user
 from account_kit.two_factor.challenges import discard_challenge
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 
 __all__ = [
     "AccountError",

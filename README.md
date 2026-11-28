@@ -9,8 +9,9 @@
 
 ---
 
-## 功能列表 (0.7.0)
+## 功能列表 (0.7.1)
 
+- **发码反馈（0.7.1）**：发送前校验、按钮「发送中…」、仅成功时提示已发送并倒计时 120 秒；注册/重置按是否已注册如实返回。抽出 `PasswordForm`。无数据库迁移。
 - **核心认证**：账号密码注册与登录、邮箱验证码流转、管理员注册审批机制、单设备互踢会话模式 (`single_device`)、自定义业务角色与用户等级目录、后台管理员权限 (`is_admin`) 隔离。
 - **审批下沉（0.7.0）**：`approval_reason` / `decided_by` / `decided_at`；一个 `require_approval` 管邮箱注册、SSO 开户、微信注册；专用 `/approval` 接口拒绝必填原因；被拒返回 `ACCOUNT_REJECTED`。详见 [docs/upgrade.md](docs/upgrade.md)。
 - **SSO 绑定已有用户（0.7.0）**：kit 签发一次性 `bind_ticket` + `verify_bind_target`；未知身份不再静默建号。RP 路由与 `sso_links` 留宿主。默认邮箱自动关联，`email_verified=false` 不自动。双 UI：`BindExistingAccountForm` / `SsoBindPanel` / `SsoBindSettings`。

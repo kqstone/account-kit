@@ -4,6 +4,20 @@
 
 ---
 
+## 升级至 0.7.1（发码如实反馈）
+
+无数据库迁移。pin `account-kit==0.7.1` 与 `@kqstone/account-ui-vue` / `-react` `0.7.1`。
+
+**行为变化（公开 `/send-code`）**
+
+- 注册：邮箱已注册改为返回 `400 EMAIL_TAKEN`，不再返回成功且不发信。
+- 重置：邮箱未注册改为返回 `404 EMAIL_NOT_REGISTERED`，不再假装已发送。管理员账号仍不发码，返回 `400 PASSWORD_RESET_NOT_ALLOWED`。
+- 同用途重发间隔默认 120 秒；成功响应带 `cooldown` / `expires_in`。次数限流与验证码有效期不变。
+
+使用套件 `RegisterForm` / `ResetPasswordForm` / 新导出的 `PasswordForm` 的宿主，升包即可获得统一的发送中、已发送 / 错误提示与倒计时。自写发码 UI 的宿主需按新错误码与 `cooldown` 对齐。
+
+---
+
 ## 升级至 0.7.0（审批 + SSO bind-ticket）
 
 审批列、`bind_tickets` 表、拒绝码拆分、未知 SSO 身份不再静默建号。pin `account-kit==0.7.0` 与 `@kqstone/account-ui-vue` / `-react` `0.7.0`。升包前必须跑迁移 / `ensure_schema`。
